@@ -431,7 +431,8 @@ _magnet_cancel: dict[str, bool] = {}
 
 @app.post("/magnet/")
 async def analyze_magnet(background_tasks: BackgroundTasks, request: Request,
-                         fast: bool = Query(False)):
+                         fast: bool = Query(False),
+                         hdr10plus: bool = Query(False)):
     """Accept a magnet URI, fetch its metadata + head/tail slices, classify
     each video file, and run ffprobe against the partial files.
 
@@ -465,7 +466,7 @@ async def analyze_magnet(background_tasks: BackgroundTasks, request: Request,
         "magnet_torrent": None,
     }
     _magnet_cancel[job_id] = False
-    background_tasks.add_task(_run_magnet_job, job_id, magnet_uri, fast)
+    background_tasks.add_task(_run_magnet_job, job_id, magnet_uri, fast, hdr10plus)
     return {"job_id": job_id}
 
 
@@ -477,7 +478,8 @@ def cancel_magnet(job_id: str):
     return {"ok": True}
 
 
-def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool) -> None:
+def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool,
+                    enable_hdr10plus: bool = False) -> None:
     job = _jobs[job_id]
 
     def emit(msg: str) -> None:
@@ -493,6 +495,7 @@ def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool) -> None:
             skip_dovi_scan=fast,
             emit=emit,
             cancel_check=cancel_check,
+            enable_hdr10plus=enable_hdr10plus,
         )
         results = rank_results(out.get("analyses", []))
         # Enrich each analysis with filename intel + verification flags.
@@ -548,7 +551,8 @@ COMPARE_PORT_BASE      = 6881
 
 @app.post("/compare-magnets/")
 async def compare_magnets(background_tasks: BackgroundTasks, request: Request,
-                           fast: bool = Query(True)):
+                           fast: bool = Query(True),
+                           hdr10plus: bool = Query(False)):
     """Run multiple magnet jobs and produce a side-by-side comparison.
 
     Body: { "magnets": ["magnet:?…", "magnet:?…", …] }
@@ -596,7 +600,7 @@ async def compare_magnets(background_tasks: BackgroundTasks, request: Request,
         "winner":     None,
     }
     _magnet_cancel[job_id] = False
-    background_tasks.add_task(_run_compare_job, job_id, cleaned, fast)
+    background_tasks.add_task(_run_compare_job, job_id, cleaned, fast, hdr10plus)
     return {"job_id": job_id, "total": len(cleaned)}
 
 
@@ -608,7 +612,8 @@ def cancel_compare(job_id: str):
     return {"ok": True}
 
 
-def _run_compare_job(job_id: str, magnets: list[str], fast: bool) -> None:
+def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
+                     enable_hdr10plus: bool = False) -> None:
     job = _jobs[job_id]
 
     def emit(msg: str) -> None:
@@ -651,6 +656,7 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool) -> None:
                 emit=emit_one,
                 cancel_check=cancel_check,
                 listen_port=port,
+                enable_hdr10plus=enable_hdr10plus,
             )
             rec["torrent"] = {
                 "name": out.get("torrent_name"),

@@ -126,31 +126,41 @@ def _pieces_for_range(piece_length: int, file_offset: int,
     return sorted(pieces)
 
 
+def _should_middle_sample(file_size: int, enable_hdr10plus: bool) -> bool:
+    """Whether to pull ~1 interior piece per 10 GB for HDR10+ SEI scanning.
+
+    HDR10+ dynamic metadata (ST 2094-40 SEI) is per-scene, scattered through
+    the whole bitstream, so head/tail alone can miss it. Sampling interior
+    pieces lets hdr10plus_tool scan the middle of the film, not just scene 1.
+
+    Platform behaviour:
+      * Linux/macOS — automatic for files > MIDDLE_SAMPLE_MIN_FILE_SIZE
+        (libtorrent's storage_mode_sparse keeps the gaps as real holes).
+      * Windows — OPT-IN per request via `enable_hdr10plus` (the API's
+        `hdr10plus=true` flag). It is disk-safe because every prioritized
+        video file is marked FILE_ATTRIBUTE_SPARSE_FILE before libtorrent's
+        first write (see the fsutil pre-sparse block in fetch_magnet_metadata),
+        so unwritten gaps between sampled pieces stay sparse holes. The
+        earlier ENOSPC blow-up came from a non-sparse `truncate()` to the full
+        size — NOT from sparse high-offset writes, which is what this does.
+        Off by default because the Bravia 8 II ignores HDR10+; turn it on when
+        comparing releases for an HDR10+-capable TV (Samsung/Panasonic/Philips).
+    """
+    if file_size < MIDDLE_SAMPLE_MIN_FILE_SIZE:
+        return False
+    if os.name == "nt":
+        return enable_hdr10plus
+    return True
+
+
 def _middle_sample_pieces(piece_length: int, file_offset: int,
-                           file_size: int) -> list[int]:
+                           file_size: int, enable_hdr10plus: bool = False) -> list[int]:
     """Pick one piece every MIDDLE_SAMPLE_INTERVAL_BYTES through the file.
 
-    DISABLED ON WINDOWS. The reason is deep and worth documenting:
-
-    On NTFS, writing a piece at byte offset N into a sparse-marked file
-    still causes the OS to allocate the [0, N] range as zero-blocks on
-    disk. Python's `truncate()`, libtorrent's `SetEndOfFile`, and even a
-    raw `WriteFile` past current EOF all behave this way. The
-    FILE_ATTRIBUTE_SPARSE_FILE attribute is only metadata; making a
-    region actually sparse requires an explicit `FSCTL_SET_ZERO_DATA`
-    after the bytes are allocated — which defeats the purpose if you
-    don't have the disk to allocate them in the first place.
-
-    The only way to safely sample mid-file pieces on Windows is to wire
-    in ctypes calls to DeviceIoControl per piece libtorrent writes,
-    which is out of scope right now. Until then we accept that
-    hdr10plus_tool only scans the head — which catches ~95% of
-    legitimately HDR10+ releases (the SEI almost always lands in scene 1)
-    and never blows up your temp drive.
+    Gated by `_should_middle_sample` — see there for the per-platform rules
+    and why Windows requires the explicit `enable_hdr10plus` opt-in.
     """
-    if os.name == "nt":
-        return []
-    if file_size < MIDDLE_SAMPLE_MIN_FILE_SIZE:
+    if not _should_middle_sample(file_size, enable_hdr10plus):
         return []
     pieces: list[int] = []
     # Start after the head region, stop before the tail region.
@@ -164,13 +174,16 @@ def _middle_sample_pieces(piece_length: int, file_offset: int,
 
 
 def _pieces_for_file(piece_length: int, file_offset: int,
-                     file_size: int, ext: str) -> list[int]:
+                     file_size: int, ext: str,
+                     enable_hdr10plus: bool = False) -> list[int]:
     """Select pieces to download for verification.
 
     All videos: head (32 MB) for codec/HDR/audio metadata.
     MP4/M2TS:    + tail (64 MB) for the moov atom.
     Large files: + ~1 piece every 10 GB so hdr10plus_tool can scan SEI
-                 messages scattered through the dynamic-HDR bitstream.
+                 messages scattered through the dynamic-HDR bitstream
+                 (interior sampling is opt-in on Windows — see
+                 `_should_middle_sample`).
     """
     if ext in (".mp4", ".m2ts"):
         pieces = _pieces_for_range(piece_length, file_offset, file_size,
@@ -178,7 +191,8 @@ def _pieces_for_file(piece_length: int, file_offset: int,
     else:
         pieces = _pieces_for_range(piece_length, file_offset, file_size,
                                     HEAD_BYTES, 0)
-    pieces.extend(_middle_sample_pieces(piece_length, file_offset, file_size))
+    pieces.extend(_middle_sample_pieces(piece_length, file_offset, file_size,
+                                         enable_hdr10plus))
     return sorted(set(pieces))
 
 
@@ -209,6 +223,7 @@ def fetch_magnet_metadata(
     emit: Callable[[str], None] | None = None,
     cancel_check: Callable[[], bool] | None = None,
     listen_port: int = 6881,
+    enable_hdr10plus: bool = False,
 ) -> dict[str, Any]:
     """Download torrent metadata + a small header slice of each video file,
     then run ffprobe for real codec/HDR/audio results.
@@ -374,8 +389,14 @@ def fetch_magnet_metadata(
             ext      = file_records[idx]["ext"]
             f_offset = files.file_offset(idx)
             f_size   = files.file_size(idx)
-            priority_pieces.extend(_pieces_for_file(piece_length, f_offset, f_size, ext))
+            priority_pieces.extend(
+                _pieces_for_file(piece_length, f_offset, f_size, ext, enable_hdr10plus)
+            )
         priority_pieces = sorted(set(priority_pieces))
+
+        if os.name == "nt" and enable_hdr10plus:
+            emit("HDR10+ deep scan ON — fetching interior pieces (~+10 MB/10 GB, "
+                 "sparse) so hdr10plus_tool can scan the whole runtime.")
 
         est_mb = len(priority_pieces) * piece_length / 1024 / 1024
         emit(f"Downloading {len(priority_pieces)} piece(s) (~{est_mb:.1f} MB) for verification…")
@@ -458,8 +479,23 @@ def fetch_magnet_metadata(
                             real_size - 4096, local_path,
                         )
                         result = None
+                elif _should_middle_sample(real_size, enable_hdr10plus):
+                    # MKV with interior HDR10+ sampling active. Probe the
+                    # sparse local_path directly (like MP4) instead of a
+                    # head-only copy — otherwise the interior pieces we just
+                    # downloaded would be invisible to the HDR10+ scanner,
+                    # which reads from local_path. Head + middle pieces are on
+                    # disk; the gaps are sparse holes. MediaInfo reads the EBML
+                    # from the head; the hdr10plus scanner seeks (-ss) only to
+                    # the sampled positions, which hold real bytes. Pass the
+                    # real size so bitrate/scores reflect the true file, not
+                    # the sparse allocation.
+                    emit(f"Probing local MKV with interior HDR10+ samples "
+                         f"({real_size / 1024**3:.2f} GB)…")
+                    result = analyze_file(local_path, skip_dovi_scan=skip_dovi_scan,
+                                          size_override_bytes=real_size)
                 else:
-                    # MKV head-only probe.
+                    # MKV head-only probe (default — no interior sampling).
                     #
                     # We deliberately do NOT truncate the probe to the real
                     # torrent file size. On Windows that would force the OS
@@ -536,7 +572,8 @@ def fetch_magnet_metadata(
 def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
                             emit: Callable[[str], None],
                             cancel_check: Callable[[], bool],
-                            listen_port: int = 6881) -> dict[str, Any]:
+                            listen_port: int = 6881,
+                            enable_hdr10plus: bool = False) -> dict[str, Any]:
     """Wrapper that runs fetch_magnet_metadata with a hard outer timeout."""
     result_holder: list[Any]                 = [None]
     error_holder:  list[BaseException | None] = [None]
@@ -547,6 +584,7 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
                 magnet_uri, skip_dovi_scan=skip_dovi_scan,
                 emit=emit, cancel_check=cancel_check,
                 listen_port=listen_port,
+                enable_hdr10plus=enable_hdr10plus,
             )
         except BaseException as e:  # noqa: BLE001
             error_holder[0] = e

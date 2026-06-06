@@ -562,6 +562,10 @@ export default function App() {
   const [selectedFiles,    setSelectedFiles]    = useState<File[]>([]);
   const [dragActive,       setDragActive]       = useState(false);
   const [fastMode,         setFastMode]         = useState(true);
+  // Opt-in deep HDR10+ scan for magnet analysis. Off by default: the Bravia
+  // 8 II ignores HDR10+, and on Windows this fetches extra interior pieces to
+  // scan the whole runtime. Turn on when comparing for an HDR10+-capable TV.
+  const [hdr10plusMode,    setHdr10plusMode]    = useState(false);
   const [isLightMode,      setIsLightMode]      = useState<boolean>(() => {
     const saved = localStorage.getItem("theme");
     if (saved === "light") return true;
@@ -820,7 +824,7 @@ export default function App() {
     setComparePerMag([]);
 
     try {
-      const res = await fetch(`${API}/magnet/?fast=${fastMode}`, {
+      const res = await fetch(`${API}/magnet/?fast=${fastMode}&hdr10plus=${hdr10plusMode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ magnet: trimmed }),
@@ -914,7 +918,7 @@ export default function App() {
     setMagnetTorrent(null);
 
     try {
-      const res = await fetch(`${API}/compare-magnets/?fast=${fastMode}`, {
+      const res = await fetch(`${API}/compare-magnets/?fast=${fastMode}&hdr10plus=${hdr10plusMode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ magnets }),
@@ -1364,6 +1368,16 @@ export default function App() {
                   />
                   <span>Fast mode</span>
                   <span className="fast-hint">(skip RPU deep scan)</span>
+                </label>
+
+                <label className="fast-toggle" title="Fetches interior torrent pieces so hdr10plus_tool can scan the whole runtime, not just the opening scene. Only needed for HDR10+-capable TVs — the Bravia 8 II ignores HDR10+.">
+                  <input
+                    type="checkbox"
+                    checked={hdr10plusMode}
+                    onChange={(e) => setHdr10plusMode(e.target.checked)}
+                  />
+                  <span>Deep HDR10+ scan</span>
+                  <span className="fast-hint">(magnets; HDR10+ TVs)</span>
                 </label>
               </div>
             </div>
