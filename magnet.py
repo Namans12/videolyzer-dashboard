@@ -47,6 +47,15 @@ MIDDLE_SAMPLE_MIN_FILE_SIZE  = 15 * 1024 * 1024 * 1024   # only sample for files
 METADATA_TIMEOUT_S = 90
 PIECE_TIMEOUT_S    = 180
 
+# Probing (MediaInfo + ffprobe + HDR10+ scan) is the slow phase for big packs —
+# ~110 s/file was measured on 11 GB DV/HDR10+ MP4 episodes. The probe phase gets
+# its own time budget that SCALES with the video-file count, so a season pack
+# isn't killed mid-probe (which used to drop ALL results). When the budget is
+# hit we return the episodes analyzed so far instead of failing the whole job.
+PROBE_BASE_S     = 60     # fixed overhead allowance
+PROBE_PER_FILE_S = 150    # per video file (covers the ~110 s/file worst case)
+PROBE_MAX_S      = 1200   # hard ceiling on the probe phase regardless of count
+
 # All well-known public DHT bootstrap nodes.
 _DHT_ROUTERS = [
     ("router.bittorrent.com",  6881),
@@ -420,8 +429,22 @@ def fetch_magnet_metadata(
                 break
             time.sleep(0.5)
 
+        # Probe phase gets a budget scaled by the number of video files so a
+        # large season pack isn't killed mid-probe. We always probe the first
+        # file (loop_i == 0), then stop once the budget is exhausted and return
+        # whatever was analyzed — partial results beat losing everything.
+        num_videos   = len(video_indexes)
+        probe_budget = min(PROBE_BASE_S + PROBE_PER_FILE_S * num_videos, PROBE_MAX_S)
+        probe_deadline = time.time() + probe_budget
+
         analyses: list[dict[str, Any]] = []
-        for idx in video_indexes:
+        for loop_i, idx in enumerate(video_indexes):
+            if loop_i > 0 and time.time() > probe_deadline:
+                remaining = num_videos - loop_i
+                emit(f"⚠ Probe budget ({probe_budget:.0f}s) reached — analyzed "
+                     f"{len(analyses)}/{num_videos} file(s); skipping {remaining} "
+                     f"remaining. Returning partial results.")
+                break
             rec        = file_records[idx]
             local_path = os.path.join(workdir, files.file_path(idx))
             if not os.path.isfile(local_path):
@@ -574,7 +597,15 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
                             cancel_check: Callable[[], bool],
                             listen_port: int = 6881,
                             enable_hdr10plus: bool = False) -> dict[str, Any]:
-    """Wrapper that runs fetch_magnet_metadata with a hard outer timeout."""
+    """Wrapper that runs fetch_magnet_metadata with a hard outer timeout.
+
+    The inner function now self-bounds every phase — metadata wait, piece
+    download, and (new) a probe budget that scales with file count and returns
+    partial results. So this outer join timeout is just a last-resort ceiling
+    against a genuine hang (e.g. a single MediaInfo call wedging); it must be
+    ≥ the inner worst case (METADATA + PIECE + PROBE_MAX) or it would kill a
+    large pack mid-probe and drop everything — the bug this fixes.
+    """
     result_holder: list[Any]                 = [None]
     error_holder:  list[BaseException | None] = [None]
 
@@ -591,11 +622,11 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    t.join(timeout=METADATA_TIMEOUT_S + PIECE_TIMEOUT_S + 30)
+    t.join(timeout=METADATA_TIMEOUT_S + PIECE_TIMEOUT_S + PROBE_MAX_S + 30)
     if t.is_alive():
         raise TimeoutError(
-            "Magnet job exceeded the hard timeout. The torrent likely has "
-            "no live seeders."
+            "Magnet job exceeded the hard timeout — a probe likely wedged. "
+            "The torrent may also have no live seeders."
         )
     if error_holder[0]:
         raise error_holder[0]

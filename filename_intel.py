@@ -114,6 +114,69 @@ CONTAINER_PATTERNS: list[tuple[str, str]] = [
 ]
 
 
+# ── Season / Episode tokens ──────────────────────────────────────────────────
+# Ordered most-specific → least. Each returns (season, episode, episode_end?).
+# We match against the basename (extension included is fine — patterns are
+# anchored on the SxxExx / NxNN tokens, not the end of the string).
+_EPISODE_PATTERNS: list[re.Pattern[str]] = [
+    # S01E02, S01E02E03 (multi-ep file), S1E2, s01.e02, s01_e02
+    re.compile(r"\bs(\d{1,2})[\s._-]*e(\d{1,3})(?:[\s._-]*e(\d{1,3}))?\b", re.I),
+    # Season 1 Episode 2
+    re.compile(r"\bseason[\s._-]*(\d{1,2})[\s._-]*episode[\s._-]*(\d{1,3})\b", re.I),
+    # 1x02, 01x02 (season x episode)
+    re.compile(r"\b(\d{1,2})x(\d{1,3})\b", re.I),
+]
+# Episode-only fallback (no season): "E02", "EP02", "Episode 2". Requires an
+# explicit e/ep/episode prefix so we never mistake a bare number (resolution,
+# year, codec) for an episode. Bare-number anime form ("Show - 03") is
+# intentionally NOT matched — too noisy.
+_EP_ONLY_RE = re.compile(r"\be(?:p|pisode)?[\s._-]*(\d{1,3})\b", re.I)
+
+
+def parse_episode(name: str) -> dict[str, Any]:
+    """Extract (season, episode, episode_end) from a file/torrent name.
+
+    Returns a dict with int|None fields. `episode_end` is set only for
+    multi-episode files like S01E02E03. All best-effort — None when no
+    recognizable episode token is present (e.g. a movie).
+    """
+    base = os.path.basename(name or "")
+    for rx in _EPISODE_PATTERNS:
+        m = rx.search(base)
+        if not m:
+            continue
+        season = int(m.group(1))
+        episode = int(m.group(2))
+        # group(3) only exists for the SxxExxExx pattern.
+        ep_end = None
+        if rx.groups >= 3 and m.lastindex and m.lastindex >= 3 and m.group(3):
+            ep_end = int(m.group(3))
+        return {"season": season, "episode": episode, "episode_end": ep_end}
+
+    m = _EP_ONLY_RE.search(base)
+    if m:
+        return {"season": None, "episode": int(m.group(1)), "episode_end": None}
+
+    return {"season": None, "episode": None, "episode_end": None}
+
+
+def episode_key(ep: dict[str, Any]) -> str | None:
+    """Stable matching key for an episode dict, or None if no episode.
+
+    SxxExx form when a season is known (`S01E02`), else `E02`. Multi-episode
+    files append the range end (`S01E02-E03`). Two files from different
+    torrents that represent the same episode produce the same key.
+    """
+    if not ep or ep.get("episode") is None:
+        return None
+    e = ep["episode"]
+    s = ep.get("season")
+    key = f"S{s:02d}E{e:02d}" if s is not None else f"E{e:02d}"
+    if ep.get("episode_end"):
+        key += f"-E{ep['episode_end']:02d}"
+    return key
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _norm(text: str) -> str:
@@ -201,6 +264,9 @@ def parse_release_name(name: str) -> dict[str, Any]:
     remastered = _has(norm, r"\bremaster(ed)?\b")
     open_matte = _has(norm, r"\bopen[\s-]*matte\b")
 
+    # ── Season / Episode ─────────────────────────────────────────────────────
+    ep = parse_episode(raw)
+
     # ── Year ────────────────────────────────────────────────────────────────
     year = None
     year_match = re.search(r"\b(19\d{2}|20\d{2})\b", norm)
@@ -261,6 +327,10 @@ def parse_release_name(name: str) -> dict[str, Any]:
         "year":         year,
         "release_group": group,
         "title":        title,
+        "season":       ep["season"],
+        "episode":      ep["episode"],
+        "episode_end":  ep["episode_end"],
+        "episode_key":  episode_key(ep),
     }
 
 
@@ -274,7 +344,8 @@ def _empty() -> dict[str, Any]:
         "hybrid":        False, "repack":      False, "proper":      False,
         "extended":      False, "directors_cut": False, "remastered": False,
         "open_matte":    False, "year":        None,  "release_group": None,
-        "title":         None,
+        "title":         None,  "season":      None,  "episode":     None,
+        "episode_end":   None,  "episode_key": None,
     }
 
 

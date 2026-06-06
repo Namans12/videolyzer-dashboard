@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import type {
   VideoData, MagnetFile, MagnetTorrent,
-  ComparisonPayload, PerMagnetRecord,
+  ComparisonPayload, PerMagnetRecord, EpisodeComparison,
 } from "./types";
 import { BRAVIA_8_II_SPEC } from "./types";
 import "./App.css";
@@ -50,6 +50,202 @@ function MagnetLink({ uri, size = 14, title = "Open magnet in torrent client" }:
        }}>
       {svg}
     </a>
+  );
+}
+
+// ── Series (per-episode) comparison view ────────────────────────────────────
+function SeriesComparisonView({ data }: { data: EpisodeComparison }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const torrents = data.torrents;
+  const winnerIdx = data.summary.winner_index;
+  const colCount = torrents.length;
+  const gridTemplate = `minmax(96px,120px) repeat(${colCount}, minmax(110px,1fr)) 96px`;
+  const short = (s: string, n = 40) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
+  return (
+    <section id="series-compare" className="dashboard-section">
+      <div className="dashboard-inner">
+        <div className="dash-header">
+          <h2>Series Comparison · {data.summary.total_episodes} episode(s) · {data.summary.contested_count} head-to-head</h2>
+        </div>
+
+        {/* Season summary banner */}
+        {winnerIdx !== null && (
+          <div style={{
+            margin: "12px 0 18px", padding: "14px 16px",
+            background: "var(--compare-winner-bg)",
+            border: "1px solid var(--compare-winner-border)", borderRadius: 12,
+          }}>
+            <div style={{ fontSize: 11, color: "var(--soft-text)", marginBottom: 4,
+                          textTransform: "uppercase", letterSpacing: 0.5 }}>
+              Season Winner
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8,
+                          wordBreak: "break-all", display: "flex", alignItems: "center", gap: 6 }}>
+              <MagnetLink
+                uri={torrents.find((t) => t.index === winnerIdx)?.magnet_uri ?? null}
+                size={18} title="Open winning magnet in torrent client" />
+              <span>{data.summary.winner_name}</span>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--muted-text)" }}>
+              {data.summary.reasons.map((r, i) => <li key={i}>{r}</li>)}
+            </ul>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+              {torrents.map((t, i) => (
+                <div key={t.index} style={{
+                  fontSize: 12, padding: "4px 10px", borderRadius: 6,
+                  background: t.index === winnerIdx ? "var(--compare-winner-bg)" : "var(--compare-cell-bg)",
+                  border: `1px solid ${t.index === winnerIdx ? "var(--compare-winner-border)" : "var(--compare-cell-border-strong)"}`,
+                }}>
+                  <strong>#{i + 1}</strong> {t.win_count} win(s) · avg {t.avg_score} · {t.episode_count} ep(s)
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Per-episode score grid */}
+        <div style={{
+          display: "grid", gridTemplateColumns: gridTemplate, gap: 0,
+          border: "1px solid var(--compare-cell-border)", borderRadius: 8, overflow: "hidden",
+        }}>
+          {/* Header */}
+          <div style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600,
+                        background: "var(--compare-cell-bg-alt)", color: "var(--soft-text)" }}>
+            Episode
+          </div>
+          {torrents.map((t, i) => (
+            <div key={t.index} style={{
+              padding: "8px 10px", fontSize: 11, fontWeight: 600,
+              background: "var(--compare-cell-bg-alt)", color: "var(--soft-text)",
+              borderLeft: "1px solid var(--compare-cell-border)",
+              display: "flex", alignItems: "center", gap: 4,
+            }} title={t.name}>
+              <MagnetLink uri={t.magnet_uri} size={12} />
+              <span>#{i + 1} {short(t.name, 22)}</span>
+            </div>
+          ))}
+          <div style={{ padding: "8px 10px", fontSize: 11, fontWeight: 600,
+                        background: "var(--compare-cell-bg-alt)", color: "var(--soft-text)",
+                        borderLeft: "1px solid var(--compare-cell-border)" }}>
+            Winner
+          </div>
+
+          {/* Rows */}
+          {data.episodes.map((ep, ri) => {
+            // Map torrent index -> composite score for this episode.
+            const scoreByIdx = new Map<number, number>();
+            ep.present_in.forEach((tIdx, k) => {
+              const col = ep.comparison.comparison_matrix.columns[k];
+              if (col) scoreByIdx.set(tIdx, col.composite_score);
+            });
+            const isOpen = expanded === ep.key;
+            const winnerCol = ep.winner_torrent_index !== null
+              ? torrents.findIndex((t) => t.index === ep.winner_torrent_index) : -1;
+            const rowBg = ri % 2 ? "var(--compare-cell-bg)" : "var(--compare-cell-bg-alt)";
+            return (
+              <React.Fragment key={ep.key}>
+                <div
+                  onClick={() => setExpanded(isOpen ? null : ep.key)}
+                  style={{
+                    padding: "9px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    background: rowBg, color: "var(--page-text)",
+                    borderTop: "1px solid var(--compare-cell-border)",
+                    display: "flex", alignItems: "center", gap: 6,
+                  }}
+                  title="Click to expand full metadata comparison for this episode"
+                >
+                  <span style={{ opacity: 0.6, fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                  {ep.key}
+                </div>
+                {torrents.map((t) => {
+                  const sc = scoreByIdx.get(t.index);
+                  const isWin = t.index === ep.winner_torrent_index;
+                  return (
+                    <div key={t.index} style={{
+                      padding: "9px 10px", fontSize: 12, textAlign: "center",
+                      background: isWin ? "var(--compare-winner-bg)" : rowBg,
+                      color: sc === undefined ? "var(--soft-text)" : "var(--page-text)",
+                      fontWeight: isWin ? 700 : 400,
+                      borderTop: "1px solid var(--compare-cell-border)",
+                      borderLeft: "1px solid var(--compare-cell-border)",
+                    }}>
+                      {sc === undefined ? "—" : `${sc}/100`}
+                    </div>
+                  );
+                })}
+                <div style={{
+                  padding: "9px 10px", fontSize: 11, textAlign: "center",
+                  background: rowBg, color: "var(--muted-text)",
+                  borderTop: "1px solid var(--compare-cell-border)",
+                  borderLeft: "1px solid var(--compare-cell-border)",
+                }}>
+                  {!ep.contested ? "only #" + (torrents.findIndex((t) => t.index === ep.present_in[0]) + 1)
+                    : winnerCol >= 0 ? "#" + (winnerCol + 1) : "tie"}
+                </div>
+
+                {/* Expanded per-episode metadata matrix */}
+                {isOpen && (
+                  <div style={{
+                    gridColumn: "1 / -1", padding: "10px 12px",
+                    background: "var(--compare-cell-bg)",
+                    borderTop: "1px solid var(--compare-cell-border)",
+                  }}>
+                    <EpisodeMatrix comparison={ep.comparison} />
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+        <p style={{ fontSize: 11, color: "var(--soft-text)", marginTop: 8 }}>
+          Scores are the composite (0–100) for each torrent's copy of that episode. Green = episode winner;
+          “—” = that torrent doesn’t include the episode. Click a row for the full per-episode metadata matrix.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+// Compact metadata matrix for a single episode's comparison (reuses the same
+// shape as the movie-mode matrix, scoped to the torrents that have the episode).
+function EpisodeMatrix({ comparison }: { comparison: ComparisonPayload }) {
+  const cols = comparison.comparison_matrix.columns;
+  const tmpl = `150px repeat(${cols.length}, minmax(140px,1fr))`;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: tmpl, gap: 0,
+                  border: "1px solid var(--compare-cell-border)", borderRadius: 6, overflow: "hidden" }}>
+      <div style={{ padding: "6px 8px", fontSize: 10, background: "var(--compare-cell-bg-alt)" }} />
+      {cols.map((c, i) => (
+        <div key={i} style={{ padding: "6px 8px", fontSize: 11, fontWeight: 600,
+                              background: "var(--compare-cell-bg-alt)", color: "var(--page-text)",
+                              borderLeft: "1px solid var(--compare-cell-border)",
+                              wordBreak: "break-all" }}>
+          <MagnetLink uri={c.magnet_uri} size={11} /> {c.composite_score}/100
+        </div>
+      ))}
+      {comparison.comparison_matrix.rows.map((row, ri) => (
+        <React.Fragment key={ri}>
+          <div style={{ padding: "6px 8px", fontSize: 11, color: "var(--muted-text)",
+                        background: ri % 2 ? "var(--compare-cell-bg)" : "var(--compare-cell-bg-alt)",
+                        borderTop: "1px solid var(--compare-cell-border)" }}>
+            {row.label}
+          </div>
+          {row.values.map((v, ci) => (
+            <div key={ci} style={{
+              padding: "6px 8px", fontSize: 11,
+              background: row.highlight === ci ? "var(--compare-winner-bg)"
+                : ri % 2 ? "var(--compare-cell-bg)" : "var(--compare-cell-bg-alt)",
+              color: "var(--page-text)", fontWeight: row.highlight === ci ? 600 : 400,
+              borderTop: "1px solid var(--compare-cell-border)",
+              borderLeft: "1px solid var(--compare-cell-border)",
+            }}>
+              {v}
+            </div>
+          ))}
+        </React.Fragment>
+      ))}
+    </div>
   );
 }
 
@@ -593,6 +789,7 @@ export default function App() {
   const [magnetList,     setMagnetList]     = useState("");
   const [compareJobId,   setCompareJobId]   = useState<string | null>(null);
   const [compareData,    setCompareData]    = useState<ComparisonPayload | null>(null);
+  const [episodeCompare, setEpisodeCompare] = useState<EpisodeComparison | null>(null);
   const [comparePerMag,  setComparePerMag]  = useState<PerMagnetRecord[]>([]);
   const [compareProgress, setCompareProgress] = useState("");
 
@@ -909,6 +1106,7 @@ export default function App() {
     setIsLoading(true);
     setError("");
     setCompareData(null);
+    setEpisodeCompare(null);
     setComparePerMag([]);
     setCompareProgress("");
     // Switching into multi-magnet mode — wipe any prior single-file
@@ -934,6 +1132,8 @@ export default function App() {
         error: string | null;
         per_magnet: PerMagnetRecord[];
         comparison: ComparisonPayload | null;
+        mode?: "series" | "movie" | null;
+        episode_comparison?: EpisodeComparison | null;
       };
 
       const job = await new Promise<CompareJob>((resolve, reject) => {
@@ -956,6 +1156,7 @@ export default function App() {
         poll();
       });
 
+      setEpisodeCompare(job.episode_comparison ?? null);
       if (job.comparison) {
         setCompareData(job.comparison);
         // Promote each enriched release's underlying analysis into `data`
@@ -1496,12 +1697,17 @@ export default function App() {
         </section>
       )}
 
+      {/* ── Series (per-episode) comparison ────────────────────────────── */}
+      {episodeCompare && episodeCompare.episodes.length > 0 && (
+        <SeriesComparisonView data={episodeCompare} />
+      )}
+
       {/* ── Multi-magnet comparison view ───────────────────────────────── */}
       {compareData && compareData.releases.length >= 2 && (
         <section id="compare" className="dashboard-section">
           <div className="dashboard-inner">
             <div className="dash-header">
-              <h2>Magnet Comparison ({compareData.releases.length} releases)</h2>
+              <h2>{episodeCompare ? "Representative File Overview" : `Magnet Comparison (${compareData.releases.length} releases)`}</h2>
             </div>
 
             {/* Winner banner */}

@@ -198,6 +198,39 @@ export interface ComparisonPayload {
   };
 }
 
+// ── Series (per-episode) comparison ─────────────────────────────────────────
+export interface SeriesTorrentSummary {
+  index: number;            // original per-magnet index
+  name: string;
+  magnet_uri: string | null;
+  episode_count: number;
+  win_count: number;
+  avg_score: number;
+}
+
+export interface SeriesEpisode {
+  key: string;              // e.g. "S01E02"
+  season: number | null;
+  episode: number | null;
+  present_in: number[];     // torrent indexes that have this episode
+  missing: number[];        // torrent indexes that don't
+  contested: boolean;       // present in ≥2 torrents
+  winner_torrent_index: number | null;
+  comparison: ComparisonPayload;   // full per-episode comparison
+}
+
+export interface EpisodeComparison {
+  torrents: SeriesTorrentSummary[];
+  episodes: SeriesEpisode[];
+  summary: {
+    winner_index: number | null;   // original per-magnet index of season winner
+    winner_name: string | null;
+    reasons: string[];
+    total_episodes: number;
+    contested_count: number;
+  };
+}
+
 // ── Per-magnet record inside a /compare-magnets/ job ────────────────────────
 export interface PerMagnetRecord {
   index: number;

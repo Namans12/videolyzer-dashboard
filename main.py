@@ -20,6 +20,7 @@ import json
 from analysis import analyze_file, scan_folder
 from magnet import MagnetUnavailable, run_magnet_job_threaded
 from comparison import compare_releases, enrich_release
+from series_compare import is_series_comparison, build_series_comparison
 
 logger = logging.getLogger("video-analyzer.api")
 
@@ -598,6 +599,8 @@ async def compare_magnets(background_tasks: BackgroundTasks, request: Request,
         "per_magnet": [],
         "comparison": None,
         "winner":     None,
+        "mode":       None,
+        "episode_comparison": None,
     }
     _magnet_cancel[job_id] = False
     background_tasks.add_task(_run_compare_job, job_id, cleaned, fast, hdr10plus)
@@ -702,6 +705,13 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
                 _run_one(i, m, COMPARE_PORT_BASE + i)
 
         # ── Build comparison from whichever magnets produced analyses ───────
+        # Two torrents that are episodic season packs get a per-episode
+        # comparison; everything else (movies, single files) uses the
+        # representative-file path. We ALWAYS build the representative-file
+        # `comparison` too so the overview matrix renders in both modes.
+        series_mode = is_series_comparison(per_magnet)
+        job["mode"] = "series" if series_mode else "movie"
+
         enriched_releases: list[dict] = []
         for rec in per_magnet:
             if rec["status"] != "done" or not rec["analyses"]:
@@ -725,11 +735,26 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
 
         comparison = compare_releases(enriched_releases)
         job["comparison"] = comparison
+        # Top-level winner stays aligned with the representative-file matrix
+        # columns (the season winner lives in episode_comparison.summary).
         job["winner"]     = comparison["winner"]
-        job["status"]     = "done"
-        winner = comparison["winner"]
-        if winner["winner_index"] is not None:
-            emit(f"Winner: {winner['winner_name']} ({comparison['releases'][winner['winner_index']]['composite_score']}/100)")
+
+        if series_mode:
+            emit("Series detected — matching episodes across torrents…")
+            episode_comparison = build_series_comparison(per_magnet)
+            job["episode_comparison"] = episode_comparison
+            s = episode_comparison["summary"]
+            emit(f"Series comparison built — {s['total_episodes']} episode(s), "
+                 f"{s['contested_count']} head-to-head.")
+            if s["winner_name"]:
+                emit(f"Season winner: {s['winner_name']}")
+        else:
+            winner = comparison["winner"]
+            if winner["winner_index"] is not None:
+                emit(f"Winner: {winner['winner_name']} "
+                     f"({comparison['releases'][winner['winner_index']]['composite_score']}/100)")
+
+        job["status"] = "done"
         emit("Done — comparison built.")
     except Exception as exc:
         logger.exception("compare-magnets job %s failed", job_id)
