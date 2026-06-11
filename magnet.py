@@ -503,20 +503,25 @@ def fetch_magnet_metadata(
                         )
                         result = None
                 elif _should_middle_sample(real_size, enable_hdr10plus):
-                    # MKV with interior HDR10+ sampling active. Probe the
-                    # sparse local_path directly (like MP4) instead of a
-                    # head-only copy — otherwise the interior pieces we just
-                    # downloaded would be invisible to the HDR10+ scanner,
-                    # which reads from local_path. Head + middle pieces are on
-                    # disk; the gaps are sparse holes. MediaInfo reads the EBML
-                    # from the head; the hdr10plus scanner seeks (-ss) only to
-                    # the sampled positions, which hold real bytes. Pass the
-                    # real size so bitrate/scores reflect the true file, not
-                    # the sparse allocation.
-                    emit(f"Probing local MKV with interior HDR10+ samples "
+                    # MKV with interior HDR10+ sampling active.
+                    #
+                    # CRITICAL: do NOT hand MediaInfo the full sparse local_path
+                    # here — deep-parsing a 40-79 GB sparse MKV blew past the
+                    # 6-min analyze_file timeout and the file was dropped whole.
+                    # Instead probe a cheap HEAD-ONLY copy for MediaInfo/ffprobe
+                    # (fast), and point ONLY the HDR10+ slice scanner at the full
+                    # sparse local_path via hdr10plus_source, so it can still
+                    # seek (-ss) to the interior pieces we downloaded.
+                    emit(f"Probing MKV head + interior HDR10+ samples "
                          f"({real_size / 1024**3:.2f} GB)…")
-                    result = analyze_file(local_path, skip_dovi_scan=skip_dovi_scan,
-                                          size_override_bytes=real_size)
+                    probe_path = local_path + ".__probe__" + ext_lower
+                    with open(local_path, "rb") as _src:
+                        head_data = _src.read(HEAD_BYTES)
+                    with open(probe_path, "wb") as _dst:
+                        _dst.write(head_data)
+                    result = analyze_file(probe_path, skip_dovi_scan=skip_dovi_scan,
+                                          size_override_bytes=real_size,
+                                          hdr10plus_source=local_path)
                 else:
                     # MKV head-only probe (default — no interior sampling).
                     #

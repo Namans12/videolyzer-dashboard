@@ -258,16 +258,33 @@ def scan_hdr10_plus(file_path: str,
     slices_with_metadata   = 0
     extract_failures       = 0
     scan_failures          = 0
+    consecutive_failures   = 0
     first_confirmed_scene  : dict | None = None
     first_confirmed_label  : str  | None = None
     confirmed_locations    : list[str]   = []
+
+    # If interior extractions keep failing, the middle pieces simply aren't on
+    # disk (common: partial magnet probe, or deep scan on a release with no
+    # downloaded middle). Bail after this many consecutive extraction failures
+    # rather than grinding through all 8 positions at ~45 s each — that runaway
+    # was pushing analyze_file past its 6-min ceiling and silently dropping the
+    # whole file. The head is always position 0, so a real HDR10+ release still
+    # confirms before we ever hit this.
+    MAX_CONSECUTIVE_EXTRACT_FAILURES = 2
 
     for label, start in positions:
         slice_path = make_temp_path(".hevc")
         try:
             if not _extract_slice(ffmpeg_bin, file_path, start, slice_path):
                 extract_failures += 1
+                consecutive_failures += 1
+                if consecutive_failures >= MAX_CONSECUTIVE_EXTRACT_FAILURES:
+                    logger.info("hdr10plus: %d consecutive extraction failures — "
+                                "interior pieces unavailable; stopping scan early.",
+                                consecutive_failures)
+                    break
                 continue
+            consecutive_failures = 0
 
             slice_result = _scan_slice(hdr10_bin, slice_path)
             if slice_result is None:

@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import type {
   VideoData, MagnetFile, MagnetTorrent,
-  ComparisonPayload, PerMagnetRecord, EpisodeComparison,
+  ComparisonPayload, PerMagnetRecord, EpisodeComparison, DroppedMagnet,
 } from "./types";
 import { BRAVIA_8_II_SPEC } from "./types";
 import "./App.css";
@@ -790,6 +790,7 @@ export default function App() {
   const [compareJobId,   setCompareJobId]   = useState<string | null>(null);
   const [compareData,    setCompareData]    = useState<ComparisonPayload | null>(null);
   const [episodeCompare, setEpisodeCompare] = useState<EpisodeComparison | null>(null);
+  const [compareDropped, setCompareDropped] = useState<DroppedMagnet[]>([]);
   const [comparePerMag,  setComparePerMag]  = useState<PerMagnetRecord[]>([]);
   const [compareProgress, setCompareProgress] = useState("");
 
@@ -1107,6 +1108,7 @@ export default function App() {
     setError("");
     setCompareData(null);
     setEpisodeCompare(null);
+    setCompareDropped([]);
     setComparePerMag([]);
     setCompareProgress("");
     // Switching into multi-magnet mode — wipe any prior single-file
@@ -1134,6 +1136,7 @@ export default function App() {
         comparison: ComparisonPayload | null;
         mode?: "series" | "movie" | null;
         episode_comparison?: EpisodeComparison | null;
+        dropped?: DroppedMagnet[];
       };
 
       const job = await new Promise<CompareJob>((resolve, reject) => {
@@ -1157,6 +1160,7 @@ export default function App() {
       });
 
       setEpisodeCompare(job.episode_comparison ?? null);
+      setCompareDropped(job.dropped ?? []);
       if (job.comparison) {
         setCompareData(job.comparison);
         // Promote each enriched release's underlying analysis into `data`
@@ -1164,10 +1168,22 @@ export default function App() {
         // bars, bitrate chart, TV/USB panels, per-file detail cards).
         // The compare matrix above the dashboard gives the side-by-side
         // view; the dashboard below gives the deep-dive per release.
+        // Carry each release's magnet URI onto its analysis so the per-file
+        // dashboard cards + leaderboard can show a magnet link (VideoData has
+        // no magnet_uri otherwise — it's only on the enriched release).
         const releaseAnalyses: VideoData[] = job.comparison.releases
-          .map((r) => r.analysis)
-          .filter(Boolean);
-        // Annotate each with batch_rank so the existing rank pills work.
+          .filter((r) => r.analysis)
+          .map((r) => ({ ...r.analysis, magnet_uri: r.magnet_uri }));
+        // Rank TV-score-first (then quality, then bitrate) so the dashboard's
+        // "Ranked by TV score" label is honest and BEST CHOICE (= data[0]) is
+        // the best release for the Bravia — matching the backend winner. The
+        // backend already sorts, but we re-sort defensively and stamp
+        // batch_rank in the final order.
+        releaseAnalyses.sort((a, b) =>
+          ((b.tv_score ?? 0) - (a.tv_score ?? 0)) ||
+          ((b.score ?? 0) - (a.score ?? 0)) ||
+          ((b.bitrate_mbps ?? 0) - (a.bitrate_mbps ?? 0))
+        );
         releaseAnalyses.forEach((a, i) => { a.batch_rank = i + 1; });
         setData(releaseAnalyses);
         localStorage.setItem("last_results", JSON.stringify(releaseAnalyses));
@@ -1697,6 +1713,36 @@ export default function App() {
         </section>
       )}
 
+      {/* ── Dropped magnets notice (couldn't analyze in time) ──────────── */}
+      {compareDropped.length > 0 && (
+        <section className="dashboard-section">
+          <div className="dashboard-inner">
+            <div style={{
+              padding: "12px 16px", borderRadius: 10,
+              background: "var(--severity-warn-bg, rgba(255,176,32,0.12))",
+              border: "1px solid var(--severity-warn, rgba(255,176,32,0.5))",
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6,
+                            color: "var(--severity-warn)" }}>
+                ⚠ {compareDropped.length} magnet(s) couldn’t be analyzed and were left out of the comparison
+              </div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12,
+                           color: "var(--muted-text)" }}>
+                {compareDropped.map((d) => (
+                  <li key={d.index} style={{ marginBottom: 2, wordBreak: "break-all" }}>
+                    <MagnetLink uri={d.magnet} size={12} />
+                    {d.name || d.magnet.slice(0, 80)} — <em>{d.reason}</em>
+                  </li>
+                ))}
+              </ul>
+              <div style={{ fontSize: 11, color: "var(--soft-text)", marginTop: 6 }}>
+                Large REMUX files with Deep HDR10+ on can exceed the per-file analysis limit. Try again with Deep HDR10+ off, or fewer magnets at once.
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* ── Series (per-episode) comparison ────────────────────────────── */}
       {episodeCompare && episodeCompare.episodes.length > 0 && (
         <SeriesComparisonView data={episodeCompare} />
@@ -1744,10 +1790,15 @@ export default function App() {
               </div>
             )}
 
+            {/* Header cards + matrix share one horizontal scroller so wide
+                comparisons (4+ releases) scroll instead of clipping the last
+                column, and the two grids stay column-aligned. */}
+            <div style={{ overflowX: "auto", paddingBottom: 4 }}>
             {/* Column header cards */}
             <div style={{
               display: "grid",
               gridTemplateColumns: `180px repeat(${compareData.comparison_matrix.columns.length}, minmax(220px, 1fr))`,
+              minWidth: `${180 + compareData.comparison_matrix.columns.length * 220}px`,
               gap: 0, marginBottom: 12, alignItems: "stretch",
             }}>
               <div />
@@ -1796,6 +1847,7 @@ export default function App() {
             <div style={{
               display: "grid",
               gridTemplateColumns: `180px repeat(${compareData.comparison_matrix.columns.length}, minmax(220px, 1fr))`,
+              minWidth: `${180 + compareData.comparison_matrix.columns.length * 220}px`,
               gap: 0,
               border: "1px solid var(--compare-cell-border)",
               borderRadius: 8, overflow: "hidden",
@@ -1828,6 +1880,7 @@ export default function App() {
                 </React.Fragment>
               ))}
             </div>
+            </div>{/* end horizontal scroller */}
 
             {/* Verification flags per release */}
             <h3 style={{ marginTop: 24, marginBottom: 10, fontSize: 14 }}>
@@ -1919,7 +1972,13 @@ export default function App() {
                     <div key={item.path} className={`lb-row ${isBest ? "lb-best" : ""}`}>
                       <span className="lb-rank" style={{ color }}># {item.batch_rank ?? fi + 1}</span>
                       <div className="lb-file">
-                        <p className="lb-name">{cleanFileName(item.file)}</p>
+                        <p className="lb-name" style={{ display: "flex",
+                             alignItems: "center", gap: 4 }}>
+                          {item.magnet_uri && (
+                            <MagnetLink uri={item.magnet_uri} size={12} />
+                          )}
+                          {cleanFileName(item.file)}
+                        </p>
                         <p className="lb-meta">
                           DV {item.dv_profile} · {item.source} · {(item.bitrate_mbps ?? 0).toFixed(1)} Mbps
                         </p>
@@ -1999,7 +2058,12 @@ export default function App() {
               style={{ "--card-accent": color } as React.CSSProperties}>
               <div className="result-header">
                 <div className="result-header-copy">
-                  <p className="result-kicker" style={{ color }}>
+                  <p className="result-kicker" style={{ color, display: "flex",
+                       alignItems: "center", gap: 4 }}>
+                    {item.magnet_uri && (
+                      <MagnetLink uri={item.magnet_uri} size={13}
+                                  title="Open this release's magnet in your torrent client" />
+                    )}
                     #{item.batch_rank ?? idx + 1} · {item.source}
                   </p>
                   <h2 className="result-file">{cleanFileName(item.file)}</h2>
@@ -2151,12 +2215,19 @@ export default function App() {
                 </div>
               )}
 
-              <a
-                href={encodeURI(`file:///${item.path.replace(/\\/g, "/")}`)}
-                className="open-link"
-              >
-                Open File
-              </a>
+              {item.magnet_uri ? (
+                <a href={item.magnet_uri} className="open-link"
+                   title="Open this release's magnet in your torrent client">
+                  ⛓ Open Magnet
+                </a>
+              ) : (
+                <a
+                  href={encodeURI(`file:///${item.path.replace(/\\/g, "/")}`)}
+                  className="open-link"
+                >
+                  Open File
+                </a>
+              )}
               <div className="meta-line">Verdict: {getVerdict(item, isBest)}</div>
             </article>
             </ResultErrorBoundary>

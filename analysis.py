@@ -1446,7 +1446,8 @@ def build_insights(
 # ── Main analysis entry point ────────────────────────────────────────────────
 
 def analyze_file(filepath: str, skip_dovi_scan: bool = False,
-                 size_override_bytes: int | None = None) -> dict[str, Any] | None:
+                 size_override_bytes: int | None = None,
+                 hdr10plus_source: str | None = None) -> dict[str, Any] | None:
     """Wrapper with timeout protection (6 min max per file).
 
     `size_override_bytes`: when the file being probed is a partial head slice
@@ -1455,6 +1456,13 @@ def analyze_file(filepath: str, skip_dovi_scan: bool = False,
     the size after analyze_file returns is not enough — tv_score / score are
     computed during the call and would otherwise keep the wrong (probe-size)
     bitrate. This was the cause of magnet MKV files scoring ~11 points low.
+
+    `hdr10plus_source`: optional separate path for the HDR10+ scan. For a large
+    magnet MKV we feed MediaInfo/ffprobe a cheap HEAD-ONLY probe (fast), but
+    point the HDR10+ slice scanner at the full sparse torrent file so it can
+    still reach interior pieces. Without this split, deep-parsing a 40-79 GB
+    sparse MKV blew past the 6-min timeout and the file was dropped entirely.
+    Defaults to `filepath`.
     """
     result_holder = [None]
     error_holder  = [None]
@@ -1462,7 +1470,8 @@ def analyze_file(filepath: str, skip_dovi_scan: bool = False,
     def _run():
         try:
             result_holder[0] = _analyze_file_inner(filepath, skip_dovi_scan,
-                                                     size_override_bytes)
+                                                     size_override_bytes,
+                                                     hdr10plus_source)
         except Exception as e:
             error_holder[0] = e
 
@@ -1478,7 +1487,8 @@ def analyze_file(filepath: str, skip_dovi_scan: bool = False,
 
 
 def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
-                        size_override_bytes: int | None = None) -> dict[str, Any] | None:
+                        size_override_bytes: int | None = None,
+                        hdr10plus_source: str | None = None) -> dict[str, Any] | None:
     mediainfo_data, ffprobe_data = probe_metadata(filepath)
 
     if not mediainfo_data and not ffprobe_data:
@@ -1532,8 +1542,10 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
         )
         if "hevc" in codec_text or "h.265" in codec_text or "h265" in codec_text:
             from hdr10plus_scan import scan_hdr10_plus  # local import on purpose
+            # Scan the full sparse torrent file when a separate source is given
+            # (large magnet MKV), else the file we just probed.
             hdr10_plus_scan = scan_hdr10_plus(
-                filepath,
+                hdr10plus_source or filepath,
                 duration_seconds=duration_for_hdr_scan if duration_for_hdr_scan > 0 else None,
             )
     except Exception as exc:  # noqa: BLE001

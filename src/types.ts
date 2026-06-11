@@ -68,6 +68,9 @@ export interface VideoData {
   recommendation?: string;
 
   batch_rank?: number;
+  // Source magnet URI when this analysis came from a magnet comparison
+  // (absent for local-file analyses). Lets per-file cards show a magnet link.
+  magnet_uri?: string | null;
 
   // Structured fact blocks
   signal_facts: FactItem[];
@@ -196,6 +199,14 @@ export interface ComparisonPayload {
     composite_score?: number;
     reasons: string[];
   };
+}
+
+// ── Magnets that produced no analyzable file (timed out / no peers) ─────────
+export interface DroppedMagnet {
+  index: number;
+  magnet: string;
+  name: string | null;
+  reason: string;
 }
 
 // ── Series (per-episode) comparison ─────────────────────────────────────────

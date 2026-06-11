@@ -313,17 +313,44 @@ def _pick_row_winner(label: str, releases: list[dict[str, Any]],
 # ── Winner selection ─────────────────────────────────────────────────────────
 
 def pick_winner(releases: list[dict[str, Any]]) -> dict[str, Any]:
-    """Pick the recommended release. Return {winner_index, winner_name, reasons}."""
+    """Pick the recommended release. Return {winner_index, winner_name, reasons}.
+
+    TV-SCORE FIRST. This stack scores against one device (Sony Bravia 8 II), so
+    the recommendation must be the best release *for that TV* — not the highest
+    raw-quality source. A P7 REMUX has a huge composite (source tier + bitrate +
+    trust) but its enhancement layer is wasted on this TV, so its tv_score is
+    lower than an ideal P8.1; tv_score must therefore decide the winner.
+    Composite/trust/bitrate only break TV-score ties. (See memory:
+    bravia-ranking-priorities — ranking is TV-score-driven for this device.)
+    """
     if not releases:
         return {"winner_index": None, "winner_name": None, "reasons": []}
 
     scored = [(composite_score(r), i, r) for i, r in enumerate(releases)]
-    # Sort by score desc; tiebreak by trust then bitrate.
-    scored.sort(key=lambda t: (t[0][0], _trust(t[2]), _bitrate(t[2])), reverse=True)
+    # TV score first; tiebreak by composite, then trust, then bitrate.
+    scored.sort(key=lambda t: (_tv_score(t[2]), t[0][0], _trust(t[2]), _bitrate(t[2])),
+                reverse=True)
     (best_score, best_reasons), best_idx, best = scored[0]
 
     reasons: list[str] = []
-    reasons.append(f"Composite score {best_score}/100 — highest of {len(releases)} releases.")
+    reasons.append(
+        f"Best TV score: {_tv_score(best)}/100 for the Bravia 8 II "
+        f"(of {len(releases)} releases). Composite {best_score}/100."
+    )
+
+    # If a higher-RAW-quality release exists but lost on TV score, say so —
+    # this is the P7-REMUX-vs-P8.1 case the user hit. Surfaces *why* the
+    # bigger/higher-composite file wasn't recommended.
+    higher_q = [r for (sc, _i, r) in scored[1:] if sc[0] > best_score]
+    if higher_q:
+        hq = higher_q[0]
+        reasons.append(
+            f"A higher raw-quality release exists "
+            f"({hq['intel'].get('source') or 'source'} · DV {hq['analysis'].get('dv_profile') or '—'}, "
+            f"composite {composite_score(hq)[0]}/100) but it scores lower for this "
+            f"TV (TV {_tv_score(hq)} vs {_tv_score(best)}) — e.g. an unused DV "
+            f"enhancement layer or a less compatible container."
+        )
 
     # Add feature-specific reasons relative to runner-up if any.
     if len(scored) > 1:

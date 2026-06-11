@@ -601,6 +601,7 @@ async def compare_magnets(background_tasks: BackgroundTasks, request: Request,
         "winner":     None,
         "mode":       None,
         "episode_comparison": None,
+        "dropped":    [],
     }
     _magnet_cancel[job_id] = False
     background_tasks.add_task(_run_compare_job, job_id, cleaned, fast, hdr10plus)
@@ -712,6 +713,28 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
         series_mode = is_series_comparison(per_magnet)
         job["mode"] = "series" if series_mode else "movie"
 
+        # Surface magnets that produced NO analysis (timed out / no peers /
+        # unparseable) so the UI can show "N of M analyzed" instead of silently
+        # dropping them. analyze_file returns None on its 6-min timeout — common
+        # for huge MKV REMUX with deep HDR10+ on — and those used to just vanish.
+        dropped = [
+            {
+                "index":  rec["index"],
+                "magnet": rec.get("magnet"),
+                "name":   (rec.get("torrent") or {}).get("name"),
+                "reason": rec.get("error") or (
+                    "metadata received but no file could be analyzed in time "
+                    "(large REMUX + deep scan can exceed the per-file limit)"
+                ),
+            }
+            for rec in per_magnet
+            if rec.get("status") != "done" or not rec.get("analyses")
+        ]
+        job["dropped"] = dropped
+        if dropped:
+            emit(f"⚠ {len(dropped)} of {len(per_magnet)} magnet(s) produced no "
+                 f"analyzable file — see 'dropped' in the result.")
+
         enriched_releases: list[dict] = []
         for rec in per_magnet:
             if rec["status"] != "done" or not rec["analyses"]:
@@ -732,6 +755,19 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
             job["error"]  = "No magnet produced analyzable files."
             emit("Done — no comparable releases.")
             return
+
+        # ONE ranking everywhere: order releases TV-score-first (then quality,
+        # then bitrate) so the matrix columns, the winner, and the frontend
+        # leaderboard all agree. This is the Bravia-first rule — a P7 REMUX with
+        # a huge composite must not outrank an ideal P8.1 that the TV plays natively.
+        enriched_releases.sort(
+            key=lambda r: (
+                int(r.get("analysis", {}).get("tv_score") or 0),
+                int(r.get("analysis", {}).get("score") or 0),
+                float(r.get("analysis", {}).get("bitrate_mbps") or 0),
+            ),
+            reverse=True,
+        )
 
         comparison = compare_releases(enriched_releases)
         job["comparison"] = comparison
