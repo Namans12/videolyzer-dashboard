@@ -19,7 +19,7 @@ import json
 
 from analysis import analyze_file, scan_folder
 from magnet import MagnetUnavailable, run_magnet_job_threaded
-from comparison import compare_releases, enrich_release
+from comparison import compare_releases, composite_score, enrich_release
 from series_compare import is_series_comparison, build_series_comparison
 
 logger = logging.getLogger("video-analyzer.api")
@@ -756,14 +756,18 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
             emit("Done — no comparable releases.")
             return
 
-        # ONE ranking everywhere: order releases TV-score-first (then quality,
-        # then bitrate) so the matrix columns, the winner, and the frontend
-        # leaderboard all agree. This is the Bravia-first rule — a P7 REMUX with
-        # a huge composite must not outrank an ideal P8.1 that the TV plays natively.
+        # ONE ranking everywhere: order releases by pick_winner's EXACT key
+        # (tv_score, composite, trust, bitrate) so the matrix columns, winner
+        # banner, and frontend leaderboard all agree — including under a
+        # tv_score tie, where a different tiebreak here used to let the banner
+        # highlight a different column than the leaderboard's #1. This is the
+        # Bravia-first rule — a P7 REMUX with a huge composite must not outrank
+        # an ideal P8.1 that the TV plays natively.
         enriched_releases.sort(
             key=lambda r: (
                 int(r.get("analysis", {}).get("tv_score") or 0),
-                int(r.get("analysis", {}).get("score") or 0),
+                composite_score(r)[0],
+                int(r.get("verification", {}).get("trust_score") or 0),
                 float(r.get("analysis", {}).get("bitrate_mbps") or 0),
             ),
             reverse=True,

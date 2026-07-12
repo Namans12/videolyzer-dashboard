@@ -123,8 +123,10 @@ _EPISODE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bs(\d{1,2})[\s._-]*e(\d{1,3})(?:[\s._-]*e(\d{1,3}))?\b", re.I),
     # Season 1 Episode 2
     re.compile(r"\bseason[\s._-]*(\d{1,2})[\s._-]*episode[\s._-]*(\d{1,3})\b", re.I),
-    # 1x02, 01x02 (season x episode)
-    re.compile(r"\b(\d{1,2})x(\d{1,3})\b", re.I),
+    # 1x02, 01x02 (season x episode). The negative lookahead rejects video
+    # codec tokens: "DD5.1x264-GROUP" / "DDP2.0x265" would otherwise parse as
+    # S01E264 / S00E265 (a phantom episode on a plain movie release).
+    re.compile(r"\b(\d{1,2})x(?!26[456]\b)(\d{1,3})\b", re.I),
 ]
 # Episode-only fallback (no season): "E02", "EP02", "Episode 2". Requires an
 # explicit e/ep/episode prefix so we never mistake a bare number (resolution,

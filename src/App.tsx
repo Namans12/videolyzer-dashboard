@@ -878,6 +878,8 @@ export default function App() {
     // Switching modes — wipe any previous magnet-comparison state so the
     // user doesn't see a stale matrix below the new local-file results.
     setCompareData(null);
+    setEpisodeCompare(null);
+    setCompareDropped([]);
     setComparePerMag([]);
     setMagnetFiles([]);
     setMagnetTorrent(null);
@@ -1019,6 +1021,8 @@ export default function App() {
     // Switching modes — clear any prior multi-magnet comparison so the
     // single-magnet result renders cleanly on its own.
     setCompareData(null);
+    setEpisodeCompare(null);
+    setCompareDropped([]);
     setComparePerMag([]);
 
     try {
@@ -1171,19 +1175,15 @@ export default function App() {
         // Carry each release's magnet URI onto its analysis so the per-file
         // dashboard cards + leaderboard can show a magnet link (VideoData has
         // no magnet_uri otherwise — it's only on the enriched release).
+        //
+        // ORDER: keep the backend's order verbatim. The backend sorts releases
+        // by pick_winner's exact key (tv_score, composite, trust, bitrate), so
+        // matrix columns, winner banner, and this leaderboard all agree — a
+        // client-side re-sort with a different tiebreak used to let BEST CHOICE
+        // disagree with the winner banner under a tv_score tie.
         const releaseAnalyses: VideoData[] = job.comparison.releases
           .filter((r) => r.analysis)
           .map((r) => ({ ...r.analysis, magnet_uri: r.magnet_uri }));
-        // Rank TV-score-first (then quality, then bitrate) so the dashboard's
-        // "Ranked by TV score" label is honest and BEST CHOICE (= data[0]) is
-        // the best release for the Bravia — matching the backend winner. The
-        // backend already sorts, but we re-sort defensively and stamp
-        // batch_rank in the final order.
-        releaseAnalyses.sort((a, b) =>
-          ((b.tv_score ?? 0) - (a.tv_score ?? 0)) ||
-          ((b.score ?? 0) - (a.score ?? 0)) ||
-          ((b.bitrate_mbps ?? 0) - (a.bitrate_mbps ?? 0))
-        );
         releaseAnalyses.forEach((a, i) => { a.batch_rank = i + 1; });
         setData(releaseAnalyses);
         localStorage.setItem("last_results", JSON.stringify(releaseAnalyses));
