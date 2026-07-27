@@ -184,3 +184,13 @@ npm run lint     # lint frontend code
 ## License
 
 This project is licensed under the [MIT License](LICENSE)
+
+## Related Repositories
+
+| Repo | Relationship |
+|---|---|
+| [`4K-Videolyzer`](https://github.com/Namans12/4K-Videolyzer) | Seven-axis encode comparison engine — same problem domain, separate codebase |
+| [`4K-Videolyzer-2`](https://github.com/Namans12/4K-Videolyzer-2) | Its continuation; `gui2`+ adds a `libtorrent` streaming server, and `gui4` adds an RL-based weight tuner |
+| [`scraper-downloader-raretoons`](https://github.com/Namans12/scraper-downloader-raretoons) | Media acquisition tooling |
+
+Despite the shared subject, this project shares no code with the Videolyzer repos.
