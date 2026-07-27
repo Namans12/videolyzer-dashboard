@@ -185,6 +185,40 @@ npm run lint     # lint frontend code
 
 This project is licensed under the [MIT License](LICENSE)
 
+## Branches
+
+> ### ⚠️ This repository contains two unrelated histories
+>
+> The `0.base` → `4.magnet-links-2` chain has **no common ancestor** with `master` — it was pushed from a separate working copy rather than branched. Git cannot diff or merge the two normally. Between them they hold different work.
+
+### On the `master` lineage
+
+| Branch | Date | Ahead | Contents |
+|---|---|---|---|
+| `master` *(default)* | 2026-07-12 | — | Current documented state |
+| `HDR10+` | 2026-06-06 | +1 | HDR10+ support — `magnet.py`, `main.py`, `scripts/verify_hdr10plus.py`, `src/App.tsx` |
+| `tv-season-match` | 2026-07-12 | **+4** | **Newest work.** Season-wise TV matching, plus review fixes for phantom-episode regex, stale compare state, and ranking tie consistency. Adds `filename_intel.py` and `hdr10plus_scan.py` — 11 files, +1181/−67 |
+
+```bash
+git checkout tv-season-match
+```
+
+### The orphan chain
+
+Linear, but disconnected from `master`:
+
+| Branch | Date | Commits | Contents |
+|---|---|---|---|
+| `0.base` | 2026-04-29 | 32 | Upload limit raised to 120 GB, large-file guidance, error messaging, scroll-margin fixes |
+| `1.ui-changes` | 2026-04-30 | 34 | Animated leaderboard, improved chart visuals, layout and styling consistency |
+| `2.magnet-links` | 2026-05-13 | 35 | Magnet link support |
+| `4.magnet-links-2` | 2026-05-14 | **38** | Head of the chain — magnet accuracy against local info, head-bytes parsing fix, light-mode CSS fixes |
+| `3.ui-changes-2` | 2026-06-05 | 1 | Single "Initial commit from new folder" — a separate snapshot, not part of the chain despite the numbering |
+
+Note the numbering is misleading: `3.ui-changes-2` is **not** between `2` and `4`. The real order is `0 → 1 → 2 → 4`.
+
+Reconciling the two histories would need a manual diff — `git diff master 4.magnet-links-2` fails, but `git diff master:path 4.magnet-links-2:path` works file by file.
+
 ## Related Repositories
 
 | Repo | Relationship |
