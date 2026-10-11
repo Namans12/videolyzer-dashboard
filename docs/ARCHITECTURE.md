@@ -7,20 +7,33 @@ backend; it'll save you from re-deriving the data flow.
 
 A FastAPI backend wraps three offline tools (MediaInfo, ffprobe, dovi_tool) and
 one online tool (libtorrent). Every user-facing request becomes a **job** stored
-in an in-process dict (`_jobs`) and runs in a `BackgroundTasks` thread. The
-frontend polls `/job/{job_id}` until `status == "done"` or `"error"`, then
+in the in-process job store (`jobs.py`, exposed as `main._jobs`) and runs in a
+`BackgroundTasks` thread. The frontend polls `/job/{job_id}` until `status` is
+`"done"` or `"error"` (the API can also end a job as `"cancelled"`), then
 renders the result. There is no database — restart the server and jobs vanish.
 
 ## Module map
 
 ```
-main.py             FastAPI routes, job orchestration, SSE streaming.
+main.py             FastAPI routes, job runners (upload/path/magnet/compare), SSE streaming.
+jobs.py             Job store: one lock, deep-copy reads, TERMINAL states, cancel flags, retention.
+request_guard.py    ASGI middleware: Host / Origin / Sec-Fetch-Site / JSON Content-Type rules.
+path_guard.py       validate_user_path(): every server-local path, allowed roots, remote drives.
+suite_client.py     SuiteClient: runs `python -m videosuite <cmd> --json` as a subprocess,
+                    validates the videosuite-<cmd>/1 document, kills the process tree.
+suite_routes.py     /suite/devices|score|rank|compare: pydantic bodies, guards, jobs, slots.
 analysis.py         analyze_file() — MediaInfo + ffprobe + dovi_tool fusion.
-magnet.py           libtorrent magnet metadata + head/tail piece download.
+magnet.py           libtorrent magnet metadata + head/tail piece download, port pool.
 filename_intel.py   Pure-regex parser for release names → traits dict.
 verification.py     Cross-check filename traits vs stream metadata → flag list.
 comparison.py       Multi-release side-by-side matrix + winner selection.
 ```
+
+Layering: `main.py` adds the middlewares (CORS outermost, then `RequestGuard`, then the
+body-size middleware) and calls `suite_routes.install(app)`. `jobs.py`, `path_guard.py`,
+`request_guard.py` and `suite_client.py` import nothing from `main.py`; `suite_routes.py`
+imports only those. The Dashboard never imports the Comparizer engine: the suite is a
+subprocess (see `docs/SUITE_INTEGRATION.md`).
 
 Frontend is one big `src/App.tsx` (~60 KB) — be ready to grep before editing.
 
@@ -48,20 +61,46 @@ Client polls /job/{id} or SSE /job/{id}/events
 POST /compare-magnets/  { magnets: [...] }
     ↓
 _run_compare_job
-    ├─ ≤2 magnets: sequential, one libtorrent session on port 6881
-    └─ 3-8 magnets: ThreadPoolExecutor(max=2), each session on its own port
-                    starting at 6881+i to avoid collisions
+    ├─ ≤2 magnets: sequential, one libtorrent session at a time
+    └─ 3-8 magnets: ThreadPoolExecutor(max=2), two sessions at a time
+    (every session takes its own listen port from magnet.port_allocator,
+     6881-6999, shared with /magnet/, and gives it back in `finally`)
     → per magnet: fetch_magnet_metadata + analyze best file
     → comparison.compare_releases([enriched, ...])
        → side-by-side matrix + winner with reasons
     → store on _jobs[id].comparison
 ```
 
+## Data flow: suite jobs
+
+```
+POST /suite/score|rank|compare  { paths, ... }
+    ↓ RequestGuard (JSON only) → pydantic body (extra="forbid") → get_suite_client()
+    ↓                             (SuiteUnavailable → 503, no job)
+    ↓ path guard on every path / reports_dir / out_dir (400/403/404)
+    ↓ concurrency slot (compare: 1, score+rank: 2 → else 409)
+jobs.create("suite_score" | "suite_rank" | "suite_compare") → {job_id}
+    ↓                                        (background task, slot handed to the runner)
+run_score_job / run_rank_job / run_compare_job
+    → SuiteClient.<cmd>(...): python -m videosuite <cmd> --list <file> --json ...
+        stdout → validated JSON document, stderr → progress lines (compare) + stderr tail
+    → jobs.finish(results=<document>)  or  jobs.fail(error, error_kind) + error_detail
+GET /suite/devices → SuiteClient.devices(), cached 60 s, errors mapped to 503/504/502
+```
+
 ## Job record shape
 
 ```python
-_jobs[job_id] = {
-    "status":   "running" | "done" | "error",
+# jobs.py JobStore: every read is a deep copy taken under a lock.
+# TERMINAL = ("done", "error", "cancelled"); a finished job never changes again.
+jobs.get(job_id) == {
+    "kind":       "single" | "batch" | "path" | "magnet" | "compare"
+                  | "suite_score" | "suite_rank" | "suite_compare",
+    "error_kind": str | None,        # only for status "error": "timeout", "no_files",
+                                     # "analysis_failed", "unavailable", "busy", "internal",
+                                     # "no_analyses", or a suite_client.ERROR_KINDS value
+    "error_detail": str,             # suite jobs only: last 500 chars of stderr (absent otherwise)
+    "status":   "running" | "done" | "error" | "cancelled",
     "progress": "i/total",
     "current":  "currently-processing filename",
     "total":    int,
@@ -88,7 +127,8 @@ _jobs[job_id] = {
 2. **libtorrent's listen port must be unique per concurrent session.**
    See `magnet.py:fetch_magnet_metadata(listen_port=...)`. If you spawn
    parallel magnet jobs without distinct ports, only the first one binds
-   and the rest silently fail to receive metadata.
+   and the rest silently fail to receive metadata. Always take the port from
+   `magnet.port_allocator.acquire()` and release it in `finally`.
 
 3. **The probe file uses `truncate()` + sparse flag.** See `magnet.py`
    near `fsutil sparse setflag`. On NTFS, `truncate()` alone allocates
@@ -100,6 +140,17 @@ _jobs[job_id] = {
 5. **DV profile detection has three sources of truth.** In priority order:
    dovi_tool RPU scan → ffprobe `side_data_list` → MediaInfo `HDR_Format`.
    See `analysis.py:inspect_dolby_vision`.
+
+6. **No server-local path reaches a job unvalidated.** A route that accepts a
+   path calls `path_guard.validate_user_path` (via `main._validated_path` or
+   `suite_routes._guarded_path`) before creating the job, and a route that
+   starts work or reads state is behind `RequestGuard`. A new route that takes
+   a path or starts a job needs both, plus a line in the README endpoint list
+   (`tests/test_docs_contract.py` fails when a route is not mentioned there).
+
+7. **The suite is a subprocess, never an import, never a `.bat`.** User text
+   never reaches a shell: file paths travel in a `--list` file, other values
+   are validated first, the process tree is killed on cancel or timeout.
 
 ## Common pitfalls
 
@@ -124,5 +175,8 @@ _jobs[job_id] = {
 | Add a fake-release check                  | New `_check_*` in `verification.py`, then list in `verify_release` |
 | Score a new release feature               | `comparison.py:composite_score` |
 | Add a new comparison row                  | `comparison.py:COMPARISON_ROWS` |
-| Add a new API route                       | `main.py`, follow `/magnet/` pattern |
+| Add a new API route                       | `main.py`, follow `/magnet/` pattern; add path guard / request guard rules and the README endpoint list |
+| Add a VideoSuite command or option        | `suite_client.py` (validation + document keys), `suite_routes.py` (body model, runner), `docs/SUITE_INTEGRATION.md` |
+| Change an allowed Host/Origin or content type | `request_guard.py` |
+| Change which paths are accepted           | `path_guard.py` (and its README section) |
 | Add a UI panel                            | `src/App.tsx`, find a sibling section by greping `dashboard-section` |

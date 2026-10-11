@@ -730,7 +730,7 @@ Prevent:
 
 * auto-download copyrighted media
 * auto-seed torrents
-* expose local filesystem
+* expose local filesystem (every server-local path goes through `path_guard.py`, every request through `request_guard.py`; keep `VIDEOLYZER_ALLOWED_ROOTS` and the remote-drive rule working, see README "Security model")
 
 ---
 

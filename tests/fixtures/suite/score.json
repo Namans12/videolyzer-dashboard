@@ -1,0 +1,1011 @@
+{
+ "schema": "videosuite-score/1",
+ "tool_version": "0.2.0",
+ "records": [
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+   "source": {
+    "path": "C:\\fixtures\\suite\\clip_a_crf18.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": "ffprobe version N-120361-g829680f96a-20250723 Copyright (c) 2007-2025 the FFmpeg developers"
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 131133,
+    "duration_s": 1.0,
+    "overall_bitrate_kbps": 1049
+   },
+   "video": {
+    "codec": "h264",
+    "profile": "High",
+    "level": 30,
+    "width": 640,
+    "height": 360,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": 24.0,
+    "bit_depth": 8,
+    "bitrate_kbps": 1049,
+    "bitrate_source": "container_estimate"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "clip_a_crf18.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {
+    "galaxy_tab_s9_ultra/vlc": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the Snapdragon 8 Gen 2",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: Samsung lists MKV among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": []
+    },
+    "galaxy_tab_s9_ultra/samsung_video": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "samsung_video",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: Samsung's player uses the hardware decoders",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: Samsung lists MKV among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    },
+    "sony_bravia_8_ii/builtin_usb": {
+     "device": "sony_bravia_8_ii",
+     "player": "builtin_usb",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: H.264 up to 4K@60 (Sony help guide)",
+       "confidence": "official",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV with internal and external subtitles (Sony help guide)",
+       "confidence": "official",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": []
+    },
+    "sony_bravia_8_ii/kodi": {
+     "device": "sony_bravia_8_ii",
+     "player": "kodi",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV plays in Kodi on a BRAVIA 9 (same platform family)",
+       "confidence": "forum",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    },
+    "vivobook_pro_16x/vlc": {
+     "device": "vivobook_pro_16x",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the AMD iGPU",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: VLC plays it; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is containers.matroska (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      }
+     ],
+     "hints": []
+    },
+    "vivobook_pro_16x/windows_player": {
+     "device": "vivobook_pro_16x",
+     "player": "windows_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: built into Windows",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: plays MKV; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    }
+   },
+   "pixel_results": []
+  },
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+   "source": {
+    "path": "C:\\fixtures\\suite\\clip_b_crf34.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": "ffprobe version N-120361-g829680f96a-20250723 Copyright (c) 2007-2025 the FFmpeg developers"
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 27584,
+    "duration_s": 1.0,
+    "overall_bitrate_kbps": 221
+   },
+   "video": {
+    "codec": "h264",
+    "profile": "High",
+    "level": 30,
+    "width": 640,
+    "height": 360,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": 24.0,
+    "bit_depth": 8,
+    "bitrate_kbps": 221,
+    "bitrate_source": "container_estimate"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "clip_b_crf34.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {
+    "galaxy_tab_s9_ultra/vlc": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the Snapdragon 8 Gen 2",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: Samsung lists MKV among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": []
+    },
+    "galaxy_tab_s9_ultra/samsung_video": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "samsung_video",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: Samsung's player uses the hardware decoders",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: Samsung lists MKV among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    },
+    "sony_bravia_8_ii/builtin_usb": {
+     "device": "sony_bravia_8_ii",
+     "player": "builtin_usb",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: H.264 up to 4K@60 (Sony help guide)",
+       "confidence": "official",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV with internal and external subtitles (Sony help guide)",
+       "confidence": "official",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": []
+    },
+    "sony_bravia_8_ii/kodi": {
+     "device": "sony_bravia_8_ii",
+     "player": "kodi",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV plays in Kodi on a BRAVIA 9 (same platform family)",
+       "confidence": "forum",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    },
+    "vivobook_pro_16x/vlc": {
+     "device": "vivobook_pro_16x",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the AMD iGPU",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: VLC plays it; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is containers.matroska (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      }
+     ],
+     "hints": []
+    },
+    "vivobook_pro_16x/windows_player": {
+     "device": "vivobook_pro_16x",
+     "player": "windows_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: built into Windows",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: plays MKV; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    }
+   },
+   "pixel_results": []
+  },
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+   "source": {
+    "path": "C:\\fixtures\\suite\\clip_c_crf26.mp4",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": "ffprobe version N-120361-g829680f96a-20250723 Copyright (c) 2007-2025 the FFmpeg developers"
+    }
+   },
+   "container": {
+    "format": "mp4",
+    "size_bytes": 67245,
+    "duration_s": 1.0,
+    "overall_bitrate_kbps": 538
+   },
+   "video": {
+    "codec": "h264",
+    "profile": "High",
+    "level": 30,
+    "width": 640,
+    "height": 360,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": 24.0,
+    "bit_depth": 8,
+    "bitrate_kbps": 528,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "clip_c_crf26.mp4",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {
+    "galaxy_tab_s9_ultra/vlc": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the Snapdragon 8 Gen 2",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: Samsung lists MP4 among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": []
+    },
+    "galaxy_tab_s9_ultra/samsung_video": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "samsung_video",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: Samsung's player uses the hardware decoders",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: Samsung lists MP4 among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    },
+    "sony_bravia_8_ii/builtin_usb": {
+     "device": "sony_bravia_8_ii",
+     "player": "builtin_usb",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: H.264 up to 4K@60 (Sony help guide)",
+       "confidence": "official",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: Sony: MP4 shows external subtitles only",
+       "confidence": "official",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": []
+    },
+    "sony_bravia_8_ii/kodi": {
+     "device": "sony_bravia_8_ii",
+     "player": "kodi",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    },
+    "vivobook_pro_16x/vlc": {
+     "device": "vivobook_pro_16x",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the AMD iGPU",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: VLC plays it; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is containers.mp4 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "containers.mp4"
+      }
+     ],
+     "hints": []
+    },
+    "vivobook_pro_16x/windows_player": {
+     "device": "vivobook_pro_16x",
+     "player": "windows_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: built into Windows",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: plays MP4; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": []
+    }
+   },
+   "pixel_results": []
+  }
+ ]
+}

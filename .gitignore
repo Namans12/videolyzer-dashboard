@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 
 __pycache__
+
+# Python environment, uploads and test caches
+.venv/
+uploads/
+.pytest_cache/

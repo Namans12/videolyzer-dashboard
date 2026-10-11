@@ -1,0 +1,840 @@
+"""Tests for the /suite routes (plan 2, task D11).
+
+No real subprocess: routes get a fake client through ``app.dependency_overrides[get_suite_client]``;
+the cancel test drives the real ``SuiteClient`` with a fake process (injected ``popen``/``killer``).
+TestClient runs BackgroundTasks before the response returns, so HTTP tests assert final job
+states only; "running" behaviour is tested by calling the runners in a worker thread."""
+from __future__ import annotations
+
+import copy
+import io
+import json
+import subprocess
+import threading
+from pathlib import Path
+
+import pytest
+
+import jobs as jobs_module
+import main
+import suite_routes
+from suite_client import (ERROR_KINDS, SuiteArgumentError, SuiteClient, SuiteError, SuiteUnavailable,
+                          get_suite_client)
+
+FIX = Path(__file__).parent / "fixtures" / "suite"
+UNAVAILABLE = "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"
+
+
+def fixture_doc(name: str) -> dict:
+    return json.loads((FIX / name).read_text(encoding="utf-8"))
+
+
+# ── fakes ────────────────────────────────────────────────────────────────────────
+
+class FakeClient:
+    """Stands in for SuiteClient. ``results[name]`` is a document, an exception to raise, or a callable."""
+
+    def __init__(self, **results):
+        self.results = results
+        self.calls: list[tuple[str, tuple, dict]] = []
+
+    def _go(self, name, args, kwargs):
+        self.calls.append((name, args, kwargs))
+        value = self.results.get(name)
+        if callable(value):
+            return value(*args, **kwargs)
+        if isinstance(value, BaseException):
+            raise value
+        return copy.deepcopy(value) if value is not None else fixture_doc(f"{name}.json")
+
+    def devices(self):
+        return self._go("devices", (), {})
+
+    def score(self, *args, **kwargs):
+        return self._go("score", args, kwargs)
+
+    def rank(self, *args, **kwargs):
+        return self._go("rank", args, kwargs)
+
+    def compare(self, *args, **kwargs):
+        return self._go("compare", args, kwargs)
+
+
+@pytest.fixture
+def fake(client):
+    """A FakeClient wired in as the suite client; the override is removed afterwards."""
+    f = FakeClient()
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    yield f
+    main.app.dependency_overrides.pop(get_suite_client, None)
+
+
+@pytest.fixture
+def videos(tmp_path):
+    a, b = tmp_path / "a.mkv", tmp_path / "b.mp4"
+    a.write_bytes(b"x")
+    b.write_bytes(b"x")
+    return [str(a), str(b)]
+
+
+@pytest.fixture(autouse=True)
+def no_allowed_roots(monkeypatch):
+    monkeypatch.delenv("VIDEOLYZER_ALLOWED_ROOTS", raising=False)
+
+
+def last_job():
+    ids = jobs_module.jobs.ids()
+    assert len(ids) == 1, ids
+    return jobs_module.jobs.get(ids[0])
+
+
+def no_jobs():
+    return len(jobs_module.jobs) == 0
+
+
+# ── /suite/devices ───────────────────────────────────────────────────────────────
+
+def test_devices_returns_the_document_and_caches_it_for_60_seconds(client, fake, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(suite_routes, "_clock", lambda: now[0])
+    r1 = client.get("/suite/devices")
+    assert r1.status_code == 200
+    assert r1.json() == fixture_doc("devices.json")
+    now[0] += 59
+    assert client.get("/suite/devices").json() == r1.json()
+    assert [c[0] for c in fake.calls] == ["devices"]            # second call came from the cache
+    now[0] += 2                                                 # 61 s after the first fetch
+    client.get("/suite/devices")
+    assert [c[0] for c in fake.calls] == ["devices", "devices"]
+
+
+def test_devices_cache_is_cleared_by_clean_state_helper(client, fake):
+    client.get("/suite/devices")
+    suite_routes.reset_state()
+    client.get("/suite/devices")
+    assert len(fake.calls) == 2
+
+
+def test_devices_cache_is_empty_at_the_start_of_every_test(client, fake):
+    # clean_state must have cleared what the previous tests cached
+    client.get("/suite/devices")
+    assert len(fake.calls) == 1
+
+
+def test_devices_unavailable_is_503_with_the_exact_detail(client):
+    def boom():
+        raise SuiteUnavailable("The VideoSuite installation was not found (secret C:\\path).")
+    main.app.dependency_overrides[get_suite_client] = boom
+    try:
+        r = client.get("/suite/devices")
+    finally:
+        main.app.dependency_overrides.pop(get_suite_client, None)
+    assert r.status_code == 503
+    assert r.json() == {"detail": UNAVAILABLE}
+
+
+@pytest.mark.parametrize("kind,status", [("contract", 502), ("failed", 502), ("usage", 502), ("no_files", 502),
+                                         ("ffprobe_missing", 502), ("timeout", 504), ("unavailable", 503)])
+def test_devices_suite_errors_map_to_502_504(client, fake, kind, status):
+    fake.results["devices"] = SuiteError(kind, "short message", exit_code=9, stderr_tail="SECRET-STDERR C:\\x")
+    r = client.get("/suite/devices")
+    assert r.status_code == status
+    assert "SECRET-STDERR" not in r.text
+    assert "C:\\x" not in r.text
+
+
+def test_devices_usage_error_says_the_suite_is_too_old(client, fake):
+    fake.results["devices"] = SuiteError("usage", "videosuite devices exited with code 2.", exit_code=2,
+                                         stderr_tail="usage: videosuite ... invalid choice: 'devices' SECRET")
+    r = client.get("/suite/devices")
+    assert r.status_code == 502
+    assert r.json() == {"detail": "VideoSuite does not support 'devices'; reinstall the Comparizer "
+                                  "(videosuite 0.3.0 or later)"}
+    assert "SECRET" not in r.text
+
+
+def test_devices_other_502_details_are_unchanged(client, fake):
+    fake.results["devices"] = SuiteError("failed", "m", exit_code=9)
+    assert client.get("/suite/devices").json() == {"detail": "VideoSuite failed."}
+    fake.results["devices"] = SuiteError("contract", "m")
+    assert client.get("/suite/devices").json() == {"detail": "VideoSuite returned an unusable response."}
+
+
+def test_devices_errors_are_not_cached(client, fake):
+    fake.results["devices"] = SuiteError("failed", "x")
+    assert client.get("/suite/devices").status_code == 502
+    fake.results["devices"] = None
+    assert client.get("/suite/devices").status_code == 200
+
+
+def test_unavailable_on_job_post_is_503_and_no_job(client, videos):
+    def boom():
+        raise SuiteUnavailable("nope")
+    main.app.dependency_overrides[get_suite_client] = boom
+    try:
+        for url, body in [("/suite/score", {"paths": videos}),
+                          ("/suite/rank", {"paths": videos, "reports_dir": str(Path(videos[0]).parent)}),
+                          ("/suite/compare", {"paths": videos, "out_dir": str(Path(videos[0]).parent / "o"), "mode": "fast"})]:
+            r = client.post(url, json=body)
+            assert r.status_code == 503, url
+            assert r.json() == {"detail": UNAVAILABLE}
+    finally:
+        main.app.dependency_overrides.pop(get_suite_client, None)
+    assert no_jobs()
+
+
+# ── job creation: happy paths ────────────────────────────────────────────────────
+
+def test_score_creates_a_job_that_ends_done_with_the_cli_json(client, fake, videos):
+    r = client.post("/suite/score", json={"paths": videos, "device": "sony_bravia_8_ii", "player": "builtin_usb",
+                                         "fs": "exfat", "lang": "eng", "deep_dv": True})
+    assert r.status_code == 200
+    job_id = r.json()["job_id"]
+    job = client.get(f"/job/{job_id}").json()
+    assert job["status"] == "done"
+    assert job["kind"] == "suite_score"
+    assert job["results"] == fixture_doc("score.json")
+    assert job["error"] is None and job["error_kind"] is None
+    name, args, kwargs = fake.calls[0]
+    assert name == "score"
+    assert list(args[0]) == [str(Path(p).resolve()) for p in videos]
+    assert callable(kwargs.pop("cancel"))
+    assert kwargs == {"device": "sony_bravia_8_ii", "player": "builtin_usb", "fs": "exfat", "lang": "eng", "deep_dv": True}
+
+
+def test_score_with_only_paths_passes_no_optional_values(client, fake, videos):
+    r = client.post("/suite/score", json={"paths": videos})
+    assert r.status_code == 200
+    kwargs = dict(fake.calls[0][2])
+    assert callable(kwargs.pop("cancel"))
+    assert kwargs == {}
+
+
+def test_rank_creates_a_job_that_ends_done(client, fake, videos, tmp_path):
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    r = client.post("/suite/rank", json={"paths": videos, "reports_dir": str(reports), "wq": 0.7, "wp": 0.3,
+                                        "lang": "eng"})
+    assert r.status_code == 200
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert (job["status"], job["kind"]) == ("done", "suite_rank")
+    assert job["results"] == fixture_doc("rank.json")
+    name, args, kwargs = fake.calls[0]
+    assert name == "rank"
+    assert args[1] == str(reports.resolve())
+    assert callable(kwargs.pop("cancel"))
+    assert kwargs == {"wq": 0.7, "wp": 0.3, "lang": "eng"}
+
+
+def test_compare_creates_a_job_that_ends_done_with_progress_events(client, fake, videos, tmp_path):
+    def compare(paths, out_dir, mode, top, *, on_line=None, cancel=None, **kw):
+        on_line("2 file(s) shortlisted")
+        on_line("pair 1/1")
+        return fixture_doc("compare.json")
+    fake.results["compare"] = compare
+    out = tmp_path / "out"
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(out), "mode": "accurate", "top": 3})
+    assert r.status_code == 200
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert (job["status"], job["kind"]) == ("done", "suite_compare")
+    assert job["results"] == fixture_doc("compare.json")
+    msgs = [e["msg"] for e in job["events"]]
+    assert "2 file(s) shortlisted" in msgs and "pair 1/1" in msgs
+    _, args, kwargs = fake.calls[0]
+    assert args[1] == str((tmp_path / "out").resolve())
+    assert args[2:4] == ("accurate", 3)
+    assert callable(kwargs["on_line"]) and callable(kwargs["cancel"])
+
+
+def test_compare_top_is_optional(client, fake, videos, tmp_path):
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"})
+    assert r.status_code == 200
+    assert client.get(f"/job/{r.json()['job_id']}").json()["status"] == "done"
+
+
+# ── request validation ───────────────────────────────────────────────────────────
+
+def test_unc_path_is_400_and_creates_no_job(client, fake):
+    r = client.post("/suite/score", json={"paths": ["\\\\server\\share\\a.mkv"]})
+    assert r.status_code == 400
+    assert "server" not in r.text
+    assert no_jobs() and fake.calls == []
+
+
+@pytest.mark.parametrize("raw", ["relative\\a.mkv", "C:a.mkv", "\\\\?\\C:\\a.mkv", "C:\\a.mkv::$DATA", "NUL"])
+def test_bad_paths_are_rejected_without_a_job(client, fake, raw):
+    r = client.post("/suite/score", json={"paths": [raw]})
+    assert r.status_code in (400, 404)
+    assert no_jobs()
+
+
+def test_one_bad_path_among_good_ones_rejects_the_whole_request(client, fake, videos):
+    r = client.post("/suite/score", json={"paths": videos + ["\\\\h\\s\\c.mkv"]})
+    assert r.status_code == 400
+    assert no_jobs()
+
+
+def test_folder_and_non_video_paths_are_400(client, fake, tmp_path):
+    txt = tmp_path / "notes.txt"
+    txt.write_text("x")
+    assert client.post("/suite/score", json={"paths": [str(tmp_path)]}).status_code == 400
+    assert client.post("/suite/score", json={"paths": [str(txt)]}).status_code == 400
+    assert no_jobs()
+
+
+def test_missing_file_is_404_without_a_job(client, fake, tmp_path):
+    r = client.post("/suite/score", json={"paths": [str(tmp_path / "gone.mkv")]})
+    assert r.status_code == 404
+    assert no_jobs()
+
+
+def test_allowed_roots_are_enforced(client, fake, videos, monkeypatch, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.setenv("VIDEOLYZER_ALLOWED_ROOTS", str(other))
+    r = client.post("/suite/score", json={"paths": videos})
+    assert r.status_code == 403
+    assert no_jobs()
+
+
+def test_51_paths_is_422_and_50_is_accepted(client, fake, videos):
+    r = client.post("/suite/score", json={"paths": [videos[0]] * 51})
+    assert r.status_code == 422
+    assert no_jobs()
+    r = client.post("/suite/score", json={"paths": [videos[0]] * 50})
+    assert r.status_code == 200
+
+
+def test_empty_paths_is_422(client, fake):
+    assert client.post("/suite/score", json={"paths": []}).status_code == 422
+    assert client.post("/suite/score", json={}).status_code == 422
+
+
+@pytest.mark.parametrize("url,extra", [("/suite/score", {}), ("/suite/rank", {"reports_dir": "C:\\"}),
+                                       ("/suite/compare", {"out_dir": "C:\\o", "mode": "fast"})])
+def test_extra_field_is_422(client, fake, videos, url, extra):
+    r = client.post(url, json={"paths": videos, "bogus": 1, **extra})
+    assert r.status_code == 422
+    assert no_jobs()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("lang", "eng&calc"), ("lang", "e"), ("lang", ""), ("lang", 5),
+    ("device", "a&b"), ("device", "x y"), ("device", ""), ("player", "../x"), ("player", "a" * 65),
+    ("fs", "ext4"), ("fs", "NTFS"), ("deep_dv", {"a": 1}),
+])
+def test_score_value_validation_is_422(client, fake, videos, field, value):
+    r = client.post("/suite/score", json={"paths": videos, field: value})
+    assert r.status_code == 422, r.text
+    assert no_jobs()
+
+
+@pytest.mark.parametrize("value", ["true", "yes", 1, 0, "1"])
+def test_deep_dv_must_be_a_real_boolean(client, fake, videos, value):
+    r = client.post("/suite/score", json={"paths": videos, "deep_dv": value})
+    assert r.status_code == 422, r.text
+    assert no_jobs()
+
+
+def test_deep_dv_false_is_accepted_and_passed_on(client, fake, videos):
+    assert client.post("/suite/score", json={"paths": videos, "deep_dv": False}).status_code == 200
+    assert fake.calls[0][2]["deep_dv"] is False
+
+
+def test_reports_dir_and_out_dir_are_capped_at_4096_characters(client, fake, videos):
+    long = "C:\\" + "a" * 4100
+    r = client.post("/suite/rank", json={"paths": videos, "reports_dir": long})
+    assert r.status_code == 422
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": long, "mode": "fast"})
+    assert r.status_code == 422
+    assert no_jobs()
+
+
+def test_422_for_a_bad_lang_does_not_crash_the_error_encoder(client, fake, videos):
+    r = client.post("/suite/score", json={"paths": videos, "lang": "eng&calc"})
+    assert r.status_code == 422
+    assert isinstance(r.json()["detail"], list)
+
+
+@pytest.mark.parametrize("body", [{"wq": 1001}, {"wq": -1}, {"wp": 1000.5}, {"wq": "0.5"}, {"wq": True},
+                                  {"wq": 0, "wp": 0}])
+def test_rank_weights_are_validated(client, fake, videos, tmp_path, body):
+    reports = tmp_path / "r"
+    reports.mkdir()
+    r = client.post("/suite/rank", json={"paths": videos, "reports_dir": str(reports), **body})
+    assert r.status_code == 422, r.text
+    assert no_jobs()
+
+
+def test_rank_weights_at_the_limits_are_accepted(client, fake, videos, tmp_path):
+    reports = tmp_path / "r"
+    reports.mkdir()
+    r = client.post("/suite/rank", json={"paths": videos, "reports_dir": str(reports), "wq": 0, "wp": 1000})
+    assert r.status_code == 200
+
+
+@pytest.mark.parametrize("body", [{"mode": "slow"}, {"mode": "fast", "top": 0}, {"mode": "fast", "top": 7},
+                                  {"mode": "fast", "top": True}, {"mode": "fast", "top": "3"}, {}])
+def test_compare_value_validation_is_422(client, fake, videos, tmp_path, body):
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o"), **body})
+    assert r.status_code == 422, r.text
+    assert no_jobs()
+
+
+def test_out_dir_with_ampersand_is_400(client, fake, videos, tmp_path):
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "out&calc"), "mode": "fast"})
+    assert r.status_code == 400
+    assert "calc" not in r.text
+    assert no_jobs()
+
+
+@pytest.mark.parametrize("name", ["out%x", "out^x", 'out"x', "out!x", "out|x"])
+def test_out_dir_with_shell_characters_is_400(client, fake, videos, tmp_path, name):
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / name), "mode": "fast"})
+    assert r.status_code == 400
+    assert no_jobs()
+
+
+def test_out_dir_parent_must_exist_and_unc_is_rejected(client, fake, videos, tmp_path):
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "nope" / "out"), "mode": "fast"})
+    assert r.status_code == 404
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": "\\\\h\\s\\out", "mode": "fast"})
+    assert r.status_code == 400
+    assert no_jobs()
+
+
+def test_out_dir_outside_the_allowed_roots_is_403(client, fake, tmp_path, monkeypatch):
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    video = allowed / "x.mkv"
+    video.write_bytes(b"x")
+    monkeypatch.setenv("VIDEOLYZER_ALLOWED_ROOTS", str(allowed))
+    ok = client.post("/suite/compare", json={"paths": [str(video)], "out_dir": str(allowed / "out"), "mode": "fast"})
+    assert ok.status_code == 200
+    jobs_module.jobs.clear()
+    r = client.post("/suite/compare", json={"paths": [str(video)], "out_dir": str(tmp_path / "out"), "mode": "fast"})
+    assert r.status_code == 403
+    assert no_jobs()
+
+
+def test_out_dir_that_is_a_file_is_400(client, fake, videos, tmp_path):
+    f = tmp_path / "afile"
+    f.write_text("x")
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(f), "mode": "fast"})
+    assert r.status_code == 400
+    assert no_jobs()
+
+
+def test_reports_dir_must_be_an_existing_folder(client, fake, videos, tmp_path):
+    f = tmp_path / "afile"
+    f.write_text("x")
+    for bad, status in [(str(tmp_path / "missing"), 404), (str(f), 400), ("\\\\h\\s\\r", 400)]:
+        r = client.post("/suite/rank", json={"paths": videos, "reports_dir": bad})
+        assert r.status_code == status, bad
+    assert no_jobs()
+
+
+def test_reports_dir_with_ampersand_is_400(client, fake, videos, tmp_path):
+    d = tmp_path / "rep&x"
+    d.mkdir()
+    r = client.post("/suite/rank", json={"paths": videos, "reports_dir": str(d)})
+    assert r.status_code == 400
+    assert no_jobs()
+
+
+def test_text_plain_post_is_415_and_cross_site_is_403(client, fake, videos):
+    body = json.dumps({"paths": videos})
+    r = client.post("/suite/score", content=body, headers={"Content-Type": "text/plain"})
+    assert r.status_code == 415
+    r = client.post("/suite/score", json={"paths": videos}, headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403
+    r = client.post("/suite/score", json={"paths": videos}, headers={"Sec-Fetch-Site": "cross-site"})
+    assert r.status_code == 403
+    r = client.get("/suite/devices", headers={"Origin": "http://evil.example"})
+    assert r.status_code == 403
+    assert no_jobs() and fake.calls == []
+
+
+# ── job outcomes ─────────────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize("kind", ERROR_KINDS)
+@pytest.mark.parametrize("route", ["score", "rank", "compare"])
+def test_every_suite_error_kind_ends_the_job_with_that_kind(client, fake, videos, tmp_path, route, kind):
+    tail = "line\n" * 200 + "SECRET-TAIL-END"
+    fake.results[route] = SuiteError(kind, "videosuite failed.", exit_code=3, stderr_tail=tail)
+    reports = tmp_path / "rep"
+    reports.mkdir()
+    bodies = {"score": {"paths": videos}, "rank": {"paths": videos, "reports_dir": str(reports)},
+              "compare": {"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"}}
+    r = client.post(f"/suite/{route}", json=bodies[route])
+    assert r.status_code == 200
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert job["status"] == "error"
+    assert job["error_kind"] == kind
+    assert job["error"] == "videosuite failed."
+    assert "SECRET-TAIL-END" not in job["error"]
+    assert job["error_detail"].endswith("SECRET-TAIL-END")
+    assert len(job["error_detail"]) <= 500
+
+
+@pytest.mark.parametrize("route", ["score", "rank", "compare"])
+def test_the_cli_exit_code_is_stored_in_the_job(client, fake, videos, tmp_path, route):
+    fake.results[route] = SuiteError("failed", "videosuite failed.", exit_code=7, stderr_tail="x")
+    reports = tmp_path / "rep"
+    reports.mkdir()
+    bodies = {"score": {"paths": videos}, "rank": {"paths": videos, "reports_dir": str(reports)},
+              "compare": {"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"}}
+    r = client.post(f"/suite/{route}", json=bodies[route])
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert job["exit_code"] == 7
+
+
+def test_an_error_without_an_exit_code_stores_none(client, fake, videos):
+    fake.results["score"] = SuiteError("unavailable", "could not start")
+    r = client.post("/suite/score", json={"paths": videos})
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert job.get("exit_code") is None
+
+
+def test_failed_pairs_stores_the_document_exit_code_and_a_finished_progress(client, fake, videos, tmp_path):
+    from suite_client import SuiteDocument
+    doc = SuiteDocument(fixture_doc("compare.json"))
+    doc["failed"] = 2
+    doc.exit_code = 1
+    fake.results["compare"] = doc
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"})
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert (job["status"], job["error_kind"], job["exit_code"], job["progress"]) == ("error", "failed_pairs", 1, "1/1")
+
+
+def test_a_short_stderr_tail_is_kept_whole_in_error_detail(client, fake, videos):
+    fake.results["score"] = SuiteError("failed", "m", stderr_tail="ffprobe exploded")
+    r = client.post("/suite/score", json={"paths": videos})
+    assert client.get(f"/job/{r.json()['job_id']}").json()["error_detail"] == "ffprobe exploded"
+
+
+def test_compare_with_failed_pairs_keeps_the_results_and_ends_error(client, fake, videos, tmp_path):
+    doc = fixture_doc("compare.json")
+    doc["failed"] = 1
+    fake.results["compare"] = doc
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"})
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert job["status"] == "error"
+    assert job["error_kind"] == "failed_pairs"
+    assert job["results"] == doc
+    assert "1" in job["error"]
+
+
+def test_unexpected_exception_ends_the_job_internal_without_leaking_text(client, fake, videos):
+    fake.results["score"] = RuntimeError("boom C:\\secret")
+    r = client.post("/suite/score", json={"paths": videos})
+    job = client.get(f"/job/{r.json()['job_id']}").json()
+    assert job["status"] == "error"
+    assert job["error_kind"] == "internal"
+    assert "secret" not in json.dumps(job)
+
+
+def test_argument_error_inside_the_runner_is_a_usage_error():
+    job_id = jobs_module.jobs.create("suite_score")
+    client = FakeClient(score=SuiteArgumentError("lang is not a valid language code"))
+    suite_routes.run_score_job(job_id, client, ["C:\\a.mkv"])
+    job = jobs_module.jobs.get(job_id)
+    assert (job["status"], job["error_kind"]) == ("error", "usage")
+
+
+def test_cancel_route_works_for_a_suite_job(client, fake, videos):
+    job_id = jobs_module.jobs.create("suite_score")
+    r = client.post(f"/job/{job_id}/cancel")
+    assert r.status_code == 200
+    assert jobs_module.jobs.is_cancelled(job_id)
+
+
+# ── runners called directly: concurrency and cancel ──────────────────────────────
+
+class BlockingClient:
+    def __init__(self, doc_name="compare.json"):
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.doc_name = doc_name
+        self.calls = 0
+
+    def _block(self, **kw):
+        self.calls += 1
+        self.started.set()
+        assert self.release.wait(10)
+        return fixture_doc(self.doc_name)
+
+    def compare(self, *a, **k):
+        return self._block()
+
+    def score(self, *a, **k):
+        return self._block()
+
+    def rank(self, *a, **k):
+        return self._block()
+
+
+def start_in_thread(fn, *args, **kwargs):
+    t = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
+    t.start()
+    return t
+
+
+def test_second_compare_while_one_runs_is_409_and_the_slot_is_freed_afterwards(client, fake, videos, tmp_path):
+    blocker = BlockingClient()
+    job1 = jobs_module.jobs.create("suite_compare")
+    t = start_in_thread(suite_routes.run_compare_job, job1, blocker, videos, str(tmp_path / "o1"), "fast", 4)
+    assert blocker.started.wait(10)
+    try:
+        r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o2"), "mode": "fast"})
+        assert r.status_code == 409
+        assert r.json() == {"detail": "a comparison is already running"}
+        assert len(jobs_module.jobs) == 1                        # the refused request created no job
+        # a score job is not blocked by a running compare
+        assert client.post("/suite/score", json={"paths": videos}).status_code == 200
+    finally:
+        blocker.release.set()
+        t.join(10)
+    assert jobs_module.jobs.get(job1)["status"] == "done"
+    r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o3"), "mode": "fast"})
+    assert r.status_code == 200
+
+
+def test_the_compare_slot_is_released_after_an_error_too(client, fake, videos, tmp_path):
+    fake.results["compare"] = RuntimeError("x")
+    for _ in range(2):
+        r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"})
+        assert r.status_code == 200
+
+
+def test_runner_called_while_a_compare_runs_ends_its_job_busy(videos, tmp_path):
+    blocker = BlockingClient()
+    job1 = jobs_module.jobs.create("suite_compare")
+    t = start_in_thread(suite_routes.run_compare_job, job1, blocker, videos, str(tmp_path / "o1"), "fast", 4)
+    assert blocker.started.wait(10)
+    try:
+        job2 = jobs_module.jobs.create("suite_compare")
+        other = BlockingClient()
+        suite_routes.run_compare_job(job2, other, videos, str(tmp_path / "o2"), "fast", 4)
+        j2 = jobs_module.jobs.get(job2)
+        assert (j2["status"], j2["error_kind"]) == ("error", "busy")
+        assert other.calls == 0
+    finally:
+        blocker.release.set()
+        t.join(10)
+    assert jobs_module.jobs.get(job1)["status"] == "done"
+
+
+def test_only_two_score_or_rank_jobs_run_at_once(client, fake, videos, tmp_path):
+    blockers = [BlockingClient("score.json"), BlockingClient("rank.json")]
+    j1, j2 = jobs_module.jobs.create("suite_score"), jobs_module.jobs.create("suite_rank")
+    t1 = start_in_thread(suite_routes.run_score_job, j1, blockers[0], videos)
+    reports = tmp_path / "rep"
+    reports.mkdir()
+    t2 = start_in_thread(suite_routes.run_rank_job, j2, blockers[1], videos, str(reports))
+    assert blockers[0].started.wait(10) and blockers[1].started.wait(10)
+    try:
+        for url, body in [("/suite/score", {"paths": videos}), ("/suite/rank", {"paths": videos, "reports_dir": str(reports)})]:
+            r = client.post(url, json=body)
+            assert r.status_code == 409, url
+            assert r.json() == {"detail": "too many suite jobs are running"}
+        # a compare is still allowed next to them (its own slot)
+        assert client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o"), "mode": "fast"}).status_code == 200
+    finally:
+        for b in blockers:
+            b.release.set()
+        t1.join(10)
+        t2.join(10)
+    assert client.post("/suite/score", json={"paths": videos}).status_code == 200
+
+
+# fake process for the cancel test (same shape as the D10 tests use)
+
+class HangingProc:
+    def __init__(self):
+        self.stdout = io.BytesIO(b"")
+        self.stderr = io.BytesIO(b"2 file(s) shortlisted\n")
+        self.pid = 4242
+        self.returncode = None
+        self.killed = False
+
+    def die(self, rc=1):
+        self.returncode = rc
+
+    def poll(self):
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if self.returncode is not None:
+            return self.returncode
+        raise subprocess.TimeoutExpired("fake", timeout)
+
+    def kill(self):
+        self.die(-9)
+
+
+def test_cancelling_a_running_compare_kills_the_process_and_ends_the_job_cancelled(videos, tmp_path):
+    proc = HangingProc()
+    started = threading.Event()
+    killed: list[int] = []
+
+    def popen(argv, **kwargs):
+        started.set()
+        return proc
+
+    def killer(pid):
+        killed.append(pid)
+        proc.die(1)
+
+    real = SuiteClient(argv_prefix=["PY", "-m", "videosuite"], popen=popen, killer=killer)
+    job_id = jobs_module.jobs.create("suite_compare")
+    t = start_in_thread(suite_routes.run_compare_job, job_id, real, videos, str(tmp_path / "o"), "fast", 4)
+    assert started.wait(10)
+    assert jobs_module.jobs.request_cancel(job_id)
+    t.join(15)
+    assert not t.is_alive()
+    assert killed == [4242]
+    job = jobs_module.jobs.get(job_id)
+    assert job["status"] == "cancelled"
+    assert job["error"] == "cancelled"
+    # the slot is free again
+    other = jobs_module.jobs.create("suite_compare")
+    suite_routes.run_compare_job(other, FakeClient(), videos, str(tmp_path / "o"), "fast", 4)
+    assert jobs_module.jobs.get(other)["status"] == "done"
+
+
+def _cancel_via_real_client(kind, videos, tmp_path):
+    """Run a score/rank job with the real client and a hanging fake process; cancel it; return (job, killed, slots_ok)."""
+    proc = HangingProc()
+    started = threading.Event()
+    killed: list[int] = []
+    lists: list[Path] = []
+
+    def popen(argv, **kwargs):
+        lists.append(Path(argv[argv.index("--list") + 1]))
+        assert lists[0].exists()
+        started.set()
+        return proc
+
+    def killer(pid):
+        killed.append(pid)
+        proc.die(1)
+
+    real = SuiteClient(argv_prefix=["PY", "-m", "videosuite"], popen=popen, killer=killer)
+    job_id = jobs_module.jobs.create(f"suite_{kind}")
+    if kind == "score":
+        t = start_in_thread(suite_routes.run_score_job, job_id, real, videos)
+    else:
+        reports = tmp_path / "rep"
+        reports.mkdir()
+        t = start_in_thread(suite_routes.run_rank_job, job_id, real, videos, str(reports))
+    assert started.wait(10)
+    assert jobs_module.jobs.request_cancel(job_id)
+    t.join(15)
+    assert not t.is_alive()
+    assert killed == [4242]
+    assert not lists[0].parent.exists()                         # the list dir was removed
+    return jobs_module.jobs.get(job_id)
+
+
+@pytest.mark.parametrize("kind", ["score", "rank"])
+def test_cancelling_a_running_score_or_rank_kills_the_process_and_ends_cancelled(kind, videos, tmp_path):
+    job = _cancel_via_real_client(kind, videos, tmp_path)
+    assert (job["status"], job["error"]) == ("cancelled", "cancelled")
+    assert job["results"] == []
+    # both score/rank slots are free again: two more jobs can hold them at the same time
+    assert suite_routes._slots.acquire("score_rank") and suite_routes._slots.acquire("score_rank")
+
+
+@pytest.mark.parametrize("kind", ["score", "rank"])
+def test_a_score_or_rank_that_returns_none_ends_cancelled(kind, videos, tmp_path):
+    job_id = jobs_module.jobs.create(f"suite_{kind}")
+    client = FakeClient(**{kind: lambda *a, **k: None})
+    if kind == "score":
+        suite_routes.run_score_job(job_id, client, videos)
+    else:
+        suite_routes.run_rank_job(job_id, client, videos, str(tmp_path))
+    assert jobs_module.jobs.get(job_id)["status"] == "cancelled"
+
+
+@pytest.mark.parametrize("kind", ["score", "rank"])
+def test_a_job_cancelled_while_queued_never_calls_the_client(kind, videos, tmp_path):
+    job_id = jobs_module.jobs.create(f"suite_{kind}")
+    assert jobs_module.jobs.request_cancel(job_id)
+    client = FakeClient()
+    if kind == "score":
+        suite_routes.run_score_job(job_id, client, videos)
+    else:
+        suite_routes.run_rank_job(job_id, client, videos, str(tmp_path))
+    assert client.calls == []
+    job = jobs_module.jobs.get(job_id)
+    assert (job["status"], job["error"]) == ("cancelled", "cancelled")
+    assert suite_routes._slots.acquire("score_rank") and suite_routes._slots.acquire("score_rank")
+
+
+def test_a_compare_cancelled_while_queued_never_calls_the_client(videos, tmp_path):
+    job_id = jobs_module.jobs.create("suite_compare")
+    assert jobs_module.jobs.request_cancel(job_id)
+    client = FakeClient()
+    suite_routes.run_compare_job(job_id, client, videos, str(tmp_path / "o"), "fast", 4)
+    assert client.calls == []
+    assert jobs_module.jobs.get(job_id)["status"] == "cancelled"
+
+
+def test_score_and_rank_receive_a_cancel_callable_reading_the_store_flag(videos, tmp_path):
+    for kind in ("score", "rank"):
+        job_id = jobs_module.jobs.create(f"suite_{kind}")
+        seen = []
+
+        def go(*a, cancel=None, **k):
+            seen.append(cancel())
+            jobs_module.jobs.request_cancel(job_id)
+            seen.append(cancel())
+            return None
+
+        client = FakeClient(**{kind: go})
+        if kind == "score":
+            suite_routes.run_score_job(job_id, client, videos)
+        else:
+            suite_routes.run_rank_job(job_id, client, videos, str(tmp_path))
+        assert seen == [False, True]
+
+
+def test_a_compare_that_returns_none_ends_cancelled_not_error_or_done(videos, tmp_path):
+    job_id = jobs_module.jobs.create("suite_compare")
+    client = FakeClient(compare=lambda *a, **k: None)
+    suite_routes.run_compare_job(job_id, client, videos, str(tmp_path / "o"), "fast", 4)
+    job = jobs_module.jobs.get(job_id)
+    assert job["status"] == "cancelled"
+    assert job["results"] == []
+
+
+def test_the_cancel_callable_reads_the_job_store_flag(videos, tmp_path):
+    job_id = jobs_module.jobs.create("suite_compare")
+    seen = []
+
+    def compare(paths, out_dir, mode, top, *, on_line, cancel, **kw):
+        seen.append(cancel())
+        jobs_module.jobs.request_cancel(job_id)
+        seen.append(cancel())
+        return None
+
+    suite_routes.run_compare_job(job_id, FakeClient(compare=compare), videos, str(tmp_path / "o"), "fast", 4)
+    assert seen == [False, True]
+
+
+def test_progress_events_are_bounded_and_truncated(videos, tmp_path):
+    job_id = jobs_module.jobs.create("suite_compare")
+
+    def compare(paths, out_dir, mode, top, *, on_line, cancel, **kw):
+        on_line("x" * 5000)
+        for i in range(suite_routes.MAX_PROGRESS_EVENTS + 50):
+            on_line(f"line {i}")
+        return fixture_doc("compare.json")
+
+    suite_routes.run_compare_job(job_id, FakeClient(compare=compare), videos, str(tmp_path / "o"), "fast", 4)
+    job = jobs_module.jobs.get(job_id)
+    assert job["status"] == "done"
+    assert len(job["events"]) <= suite_routes.MAX_PROGRESS_EVENTS + 5
+    assert max(len(e["msg"]) for e in job["events"]) <= 600
+    assert job["current"].startswith("line ")                    # the latest line is still visible

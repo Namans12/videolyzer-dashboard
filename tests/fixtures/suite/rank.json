@@ -1,0 +1,546 @@
+{
+ "schema": "videosuite-rank/1",
+ "tool_version": "0.2.0",
+ "quality": [
+  {
+   "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+   "games": 1,
+   "margin": 0.124002,
+   "quality_score": 55.5067,
+   "rank": 1,
+   "label": "clip_a_crf18.mkv"
+  },
+  {
+   "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+   "games": 1,
+   "margin": -0.124002,
+   "quality_score": 44.4933,
+   "rank": 2,
+   "label": "clip_b_crf34.mkv"
+  },
+  {
+   "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+   "games": 0,
+   "margin": 0.0,
+   "quality_score": null,
+   "rank": 3,
+   "label": "clip_c_crf26.mp4"
+  }
+ ],
+ "same_picture_groups": [
+  [
+   "clip_b_crf34.mkv"
+  ],
+  [
+   "clip_c_crf26.mp4"
+  ],
+  [
+   "clip_a_crf18.mkv"
+  ]
+ ],
+ "not_compared": [
+  "clip_c_crf26.mp4"
+ ],
+ "missing_pairs": [
+  [
+   "clip_a_crf18.mkv",
+   "clip_c_crf26.mp4"
+  ],
+  [
+   "clip_b_crf34.mkv",
+   "clip_c_crf26.mp4"
+  ]
+ ],
+ "weights": {
+  "quality": 0.5,
+  "playback": 0.5
+ },
+ "devices": {
+  "galaxy_tab_s9_ultra/vlc": {
+   "ranking": [
+    {
+     "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+     "label": "clip_a_crf18.mkv",
+     "quality_score": 55.5067,
+     "quality_rank": 1,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 56.8,
+     "ranking_score": 56.7533,
+     "device_rank": 1
+    },
+    {
+     "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+     "label": "clip_b_crf34.mkv",
+     "quality_score": 44.4933,
+     "quality_rank": 2,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 51.2,
+     "ranking_score": 51.2467,
+     "device_rank": 2
+    }
+   ],
+   "will_not_play": [],
+   "not_compared": [
+    {
+     "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+     "label": "clip_c_crf26.mp4",
+     "quality_score": null,
+     "quality_rank": 3,
+     "games": 0,
+     "playback_score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": null,
+     "ranking_score": null,
+     "quality_note": "no comparison data"
+    }
+   ],
+   "crossing": 11.0,
+   "crossing_note": "clip_a_crf18.mkv leads on picture (quality 56 vs 44); clip_b_crf34.mkv would only move ahead if its playback score were 11 points higher than clip_a_crf18.mkv's (now +0)."
+  },
+  "galaxy_tab_s9_ultra/samsung_video": {
+   "ranking": [
+    {
+     "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+     "label": "clip_a_crf18.mkv",
+     "quality_score": 55.5067,
+     "quality_rank": 1,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 56.8,
+     "ranking_score": 53.0033,
+     "device_rank": 1
+    },
+    {
+     "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+     "label": "clip_b_crf34.mkv",
+     "quality_score": 44.4933,
+     "quality_rank": 2,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 51.2,
+     "ranking_score": 47.4967,
+     "device_rank": 2
+    }
+   ],
+   "will_not_play": [],
+   "not_compared": [
+    {
+     "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+     "label": "clip_c_crf26.mp4",
+     "quality_score": null,
+     "quality_rank": 3,
+     "games": 0,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": null,
+     "ranking_score": null,
+     "quality_note": "no comparison data"
+    }
+   ],
+   "crossing": 11.0,
+   "crossing_note": "clip_a_crf18.mkv leads on picture (quality 56 vs 44); clip_b_crf34.mkv would only move ahead if its playback score were 11 points higher than clip_a_crf18.mkv's (now +0)."
+  },
+  "sony_bravia_8_ii/builtin_usb": {
+   "ranking": [
+    {
+     "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+     "label": "clip_a_crf18.mkv",
+     "quality_score": 55.5067,
+     "quality_rank": 1,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 56.8,
+     "ranking_score": 56.7533,
+     "device_rank": 1
+    },
+    {
+     "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+     "label": "clip_b_crf34.mkv",
+     "quality_score": 44.4933,
+     "quality_rank": 2,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 51.2,
+     "ranking_score": 51.2467,
+     "device_rank": 2
+    }
+   ],
+   "will_not_play": [],
+   "not_compared": [
+    {
+     "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+     "label": "clip_c_crf26.mp4",
+     "quality_score": null,
+     "quality_rank": 3,
+     "games": 0,
+     "playback_score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": null,
+     "ranking_score": null,
+     "quality_note": "no comparison data"
+    }
+   ],
+   "crossing": 11.0,
+   "crossing_note": "clip_a_crf18.mkv leads on picture (quality 56 vs 44); clip_b_crf34.mkv would only move ahead if its playback score were 11 points higher than clip_a_crf18.mkv's (now +0)."
+  },
+  "sony_bravia_8_ii/kodi": {
+   "ranking": [
+    {
+     "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+     "label": "clip_a_crf18.mkv",
+     "quality_score": 55.5067,
+     "quality_rank": 1,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 56.8,
+     "ranking_score": 53.0033,
+     "device_rank": 1
+    },
+    {
+     "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+     "label": "clip_b_crf34.mkv",
+     "quality_score": 44.4933,
+     "quality_rank": 2,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 51.2,
+     "ranking_score": 47.4967,
+     "device_rank": 2
+    }
+   ],
+   "will_not_play": [],
+   "not_compared": [
+    {
+     "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+     "label": "clip_c_crf26.mp4",
+     "quality_score": null,
+     "quality_rank": 3,
+     "games": 0,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": null,
+     "ranking_score": null,
+     "quality_note": "no comparison data"
+    }
+   ],
+   "crossing": 11.0,
+   "crossing_note": "clip_a_crf18.mkv leads on picture (quality 56 vs 44); clip_b_crf34.mkv would only move ahead if its playback score were 11 points higher than clip_a_crf18.mkv's (now +0)."
+  },
+  "vivobook_pro_16x/vlc": {
+   "ranking": [
+    {
+     "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+     "label": "clip_a_crf18.mkv",
+     "quality_score": 55.5067,
+     "quality_rank": 1,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 56.8,
+     "ranking_score": 53.0033,
+     "device_rank": 1
+    },
+    {
+     "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+     "label": "clip_b_crf34.mkv",
+     "quality_score": 44.4933,
+     "quality_rank": 2,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 51.2,
+     "ranking_score": 47.4967,
+     "device_rank": 2
+    }
+   ],
+   "will_not_play": [],
+   "not_compared": [
+    {
+     "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+     "label": "clip_c_crf26.mp4",
+     "quality_score": null,
+     "quality_rank": 3,
+     "games": 0,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": null,
+     "ranking_score": null,
+     "quality_note": "no comparison data"
+    }
+   ],
+   "crossing": 11.0,
+   "crossing_note": "clip_a_crf18.mkv leads on picture (quality 56 vs 44); clip_b_crf34.mkv would only move ahead if its playback score were 11 points higher than clip_a_crf18.mkv's (now +0)."
+  },
+  "vivobook_pro_16x/windows_player": {
+   "ranking": [
+    {
+     "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+     "label": "clip_a_crf18.mkv",
+     "quality_score": 55.5067,
+     "quality_rank": 1,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 56.8,
+     "ranking_score": 53.0033,
+     "device_rank": 1
+    },
+    {
+     "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+     "label": "clip_b_crf34.mkv",
+     "quality_score": 44.4933,
+     "quality_rank": 2,
+     "games": 1,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": 51.2,
+     "ranking_score": 47.4967,
+     "device_rank": 2
+    }
+   ],
+   "will_not_play": [],
+   "not_compared": [
+    {
+     "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+     "label": "clip_c_crf26.mp4",
+     "quality_score": null,
+     "quality_rank": 3,
+     "games": 0,
+     "playback_score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "verdict": "PLAYS_DEGRADED",
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_audio": null,
+     "reasons": [
+      "the file has no audio track"
+     ],
+     "why": null,
+     "tier": 0,
+     "device_score": null,
+     "ranking_score": null,
+     "quality_note": "no comparison data"
+    }
+   ],
+   "crossing": 11.0,
+   "crossing_note": "clip_a_crf18.mkv leads on picture (quality 56 vs 44); clip_b_crf34.mkv would only move ahead if its playback score were 11 points higher than clip_a_crf18.mkv's (now +0)."
+  }
+ }
+}

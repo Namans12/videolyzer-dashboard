@@ -46,6 +46,30 @@ PLATFORM_TOKENS: dict[str, str] = {
     "ma":        "Movies Anywhere",
 }
 
+# RB-17: tokens that are safe as whole words anywhere in the name. Every other
+# token in PLATFORM_TOKENS is ambiguous ("MA" in DTS-HD.MA, "Max" in Mad.Max,
+# "NF" / "It" / "Stan" are ordinary words or abbreviations) and only counts
+# when it sits directly next to a web tag (WEB-DL / WEBRip / WEB), in either
+# order: "NF.WEB-DL" or "WEB-DL.NF".
+_UNAMBIGUOUS_PLATFORM_TOKENS = frozenset(
+    {"amzn", "dsnp", "atvp", "pcok", "pmtp", "itunes"}
+)
+_WEB_TAG = r"(?:web-?dl|web-?rip|web)"
+
+
+def _platform_from_norm(norm: str) -> str | None:
+    """First platform (in PLATFORM_TOKENS order) found in a normalised name."""
+    for token, label in PLATFORM_TOKENS.items():
+        tok = re.escape(token)
+        if token in _UNAMBIGUOUS_PLATFORM_TOKENS:
+            if re.search(rf"\b{tok}\b", norm):
+                return label
+            continue
+        if (re.search(rf"\b{tok}\b[\s.-]*{_WEB_TAG}\b", norm)
+                or re.search(rf"\b{_WEB_TAG}\b[\s.-]*\b{tok}\b", norm)):
+            return label
+    return None
+
 # ── Source tags ──────────────────────────────────────────────────────────────
 SOURCE_PATTERNS: list[tuple[str, str]] = [
     (r"\bremux\b",                 "REMUX"),
@@ -213,18 +237,7 @@ def parse_release_name(name: str) -> dict[str, Any]:
     raw_lower = raw.lower()             # for extension matching
 
     # ── Platform ────────────────────────────────────────────────────────────
-    platform: str | None = None
-    for token, label in PLATFORM_TOKENS.items():
-        # Word-boundary match against the normalized name.
-        # `it` is short — require it to appear next to web-dl or as a clear tag.
-        if token == "it":
-            if re.search(r"\bit\b[\.\s]*web-?dl", norm) or re.search(r"\bitunes\b", norm):
-                platform = "iTunes"
-                break
-            continue
-        if re.search(rf"\b{re.escape(token)}\b", norm):
-            platform = label
-            break
+    platform = _platform_from_norm(norm)
 
     # ── Source ──────────────────────────────────────────────────────────────
     source = _first_match(norm, SOURCE_PATTERNS)
@@ -283,7 +296,7 @@ def parse_release_name(name: str) -> dict[str, Any]:
     # "...H.265-BYNDR" (no real extension) it splits on the last dot and
     # treats ".265-BYNDR" as the extension, which destroys the group token.
     # We strip only known *video* extensions, then match the trailing -GROUP.
-    KNOWN_EXTS = (".mkv", ".mp4", ".m2ts", ".ts", ".hevc", ".h265")
+    KNOWN_EXTS = (".mkv", ".mp4", ".m4v", ".m2ts", ".ts", ".hevc", ".h265")
     stem = raw
     for ext_candidate in KNOWN_EXTS:
         if stem.lower().endswith(ext_candidate):

@@ -132,8 +132,10 @@ def composite_score(release: dict[str, Any]) -> tuple[int, list[str]]:
     # If we ever add a second device profile, lift this map into a per-
     # device feature table instead of hard-coding the absence here.
     feature_bonus = 0
-    if analysis.get("bitrate_mbps", 0) >= 50: feature_bonus += 5
-    elif analysis.get("bitrate_mbps", 0) >= 25: feature_bonus += 3
+    # RB-26: bitrate_mbps may be present but None (probe could not measure it).
+    bitrate = analysis.get("bitrate_mbps") or 0
+    if bitrate >= 50: feature_bonus += 5
+    elif bitrate >= 25: feature_bonus += 3
     if intel.get("dolby_vision"):              feature_bonus += 4
     # No HDR10+ bonus — target TV doesn't support it.
     if intel.get("atmos"):                     feature_bonus += 3
@@ -407,7 +409,7 @@ def build_release_recommendation(release: dict[str, Any]) -> str:
         if intel.get("dts_x"):         feats.append("DTS:X")
         if intel.get("imax"):          feats.append("IMAX")
         feats_str = "+".join(feats) if feats else "SDR"
-        bitrate = analysis.get("bitrate_mbps", 0)
+        bitrate = analysis.get("bitrate_mbps") or 0
         parts.append(f"{intel.get('source') or 'Unknown source'} · {feats_str} · {bitrate:.1f} Mbps")
 
     rec = analysis.get("recommendation")

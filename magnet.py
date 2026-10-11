@@ -11,6 +11,7 @@ keeps booting even when the binding is missing on this machine.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -69,6 +70,136 @@ _DHT_ROUTERS = [
 
 class MagnetUnavailable(RuntimeError):
     """Raised when libtorrent isn't installed."""
+
+
+class NoFreePort(RuntimeError):
+    """Raised when every port of the torrent port pool is in use."""
+
+
+# ── Pure helpers (no libtorrent import: unit-testable with fakes) ─────────────
+
+# Upload is capped, not throttled to nothing: a ~1 B/s limit makes peers choke us
+# (tit-for-tat) and downloads stall. 50 KiB/s is the floor the tests enforce.
+UPLOAD_RATE_LIMIT_BPS = 51200
+
+TORRENT_PORT_FIRST = 6881
+TORRENT_PORT_LAST  = 6999
+
+
+def session_settings(port: int) -> dict[str, Any]:
+    """The ``settings_pack`` dict for one short-lived torrent session.
+
+    Every key is a documented libtorrent settings_pack name (an unknown key makes
+    ``lt.session`` raise); tests/test_magnet_session.py freezes the allowed set.
+    Exposure is reduced by turning UPnP / NAT-PMP / local service discovery off and
+    by giving each job its own port; DHT stays on. ``alert_mask`` needs the
+    libtorrent module, so the caller adds it. Unchoke slots are left at default.
+    """
+    if isinstance(port, bool) or not isinstance(port, int) or not 1024 <= port <= 65535:
+        raise ValueError(f"invalid torrent listen port: {port!r}")
+    return {
+        "listen_interfaces":        f"0.0.0.0:{port}",
+        "enable_dht":               True,
+        "enable_lsd":               False,
+        "enable_natpmp":            False,
+        "enable_upnp":              False,
+        "upload_rate_limit":        UPLOAD_RATE_LIMIT_BPS,
+        "connection_speed":         100,     # connect to more peers/sec
+        "peer_connect_timeout":     5,
+        "handshake_timeout":        10,
+        "request_timeout":          15,
+        "min_reconnect_time":       1,
+        "announce_to_all_tiers":    True,    # use every tracker tier
+        "announce_to_all_trackers": True,
+    }
+
+
+class PortAllocator:
+    """Thread-safe pool of listen ports shared by every torrent session.
+
+    ``/magnet/`` and each slot of ``/compare-magnets/`` take a port with
+    ``acquire()`` (lowest free first) and give it back with ``release()`` in a
+    ``finally`` (or use ``lease()``), so two live sessions never share a port.
+    """
+
+    def __init__(self, first: int = TORRENT_PORT_FIRST, last: int = TORRENT_PORT_LAST):
+        self._first = first
+        self._last = last
+        self._lock = threading.Lock()
+        self._used: set[int] = set()
+
+    def acquire(self) -> int:
+        with self._lock:
+            for port in range(self._first, self._last + 1):
+                if port not in self._used:
+                    self._used.add(port)
+                    return port
+        raise NoFreePort(
+            f"No free torrent port in {self._first}-{self._last}; "
+            "too many magnet jobs are running."
+        )
+
+    def release(self, port: int) -> None:
+        with self._lock:
+            self._used.discard(port)
+
+    def in_use(self) -> frozenset[int]:
+        with self._lock:
+            return frozenset(self._used)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._used.clear()
+
+    @contextlib.contextmanager
+    def lease(self):
+        port = self.acquire()
+        try:
+            yield port
+        finally:
+            self.release(port)
+
+
+# One allocator for the whole process.
+port_allocator = PortAllocator()
+
+
+def tail_is_present(path: str, real_size: int) -> bool:
+    """Whether an MP4/M2TS probe file has its tail (moov atom) on disk.
+
+    A file no larger than HEAD+TAIL is fully covered by the head and tail pieces,
+    so it counts as downloaded without reading it (RB-20). Larger files are
+    checked by reading the last 4 KiB: all zeros means the tail never arrived.
+    """
+    if real_size <= HEAD_BYTES + TAIL_BYTES:
+        return True
+    try:
+        with open(path, "rb") as src:
+            src.seek(real_size - 4096)
+            return any(b != 0 for b in src.read(4096))
+    except OSError as exc:
+        logger.warning("Tail probe failed on %s: %s", path, exc)
+        return False
+
+
+def file_record(index: int, name: str, size: int) -> dict[str, Any]:
+    """Per-file verdict record. ``size_gib`` is the size in GiB (1024**3);
+    ``size_gb`` is a DEPRECATED alias carrying the same GiB number, kept for the
+    React UI until Plan 3 switches to ``size_gib``."""
+    cls = _classify_file(name, size)
+    size_gib = round(size / (1024 ** 3), 3)
+    return {
+        "index":         index,
+        "name":          name,
+        "size_bytes":    size,
+        "size_gib":      size_gib,
+        "size_gb":       size_gib,
+        "ext":           cls["ext"],
+        "verdict":       cls["verdict"],
+        "reasons":       list(cls["reasons"]),
+        "ffprobe_ok":    False,
+        "analysis_path": None,
+    }
 
 
 def _load_libtorrent():
@@ -258,21 +389,11 @@ def fetch_magnet_metadata(
         # Fix 3: richer session settings for faster peer discovery.
         # listen_port is parameterized so multiple concurrent sessions
         # (used by /compare-magnets/) can run side by side without port collisions.
-        session = lt.session({
-            "listen_interfaces":        f"0.0.0.0:{listen_port}",
-            "alert_mask":               lt.alert.category_t.all_categories,
-            "enable_dht":               True,
-            "enable_lsd":               True,    # local service discovery
-            "enable_natpmp":            True,
-            "enable_upnp":              True,
-            "connection_speed":         100,     # connect to more peers/sec
-            "peer_connect_timeout":     5,
-            "handshake_timeout":        10,
-            "request_timeout":          15,
-            "min_reconnect_time":       1,
-            "announce_to_all_tiers":    True,    # use every tracker tier
-            "announce_to_all_trackers": True,
-        })
+        # UPnP/NAT-PMP/LSD are off and upload is capped at 50 KiB/s (not 1 B/s):
+        # see `session_settings`.
+        settings = session_settings(listen_port)
+        settings["alert_mask"] = lt.alert.category_t.all_categories
+        session = lt.session(settings)
 
         for host, port in _DHT_ROUTERS:
             session.add_dht_router(host, port)
@@ -328,20 +449,9 @@ def fetch_magnet_metadata(
         for i in range(num_files):
             f_path = files.file_path(i)
             f_size = files.file_size(i)
-            cls = _classify_file(f_path, f_size)
-            rec = {
-                "index":         i,
-                "name":          f_path,
-                "size_bytes":    f_size,
-                "size_gb":       round(f_size / (1024**3), 3),
-                "ext":           cls["ext"],
-                "verdict":       cls["verdict"],
-                "reasons":       cls["reasons"],
-                "ffprobe_ok":    False,
-                "analysis_path": None,
-            }
+            rec = file_record(i, f_path, f_size)
             file_records.append(rec)
-            if cls["verdict"] == "good":
+            if rec["verdict"] == "good":
                 video_indexes.append(i)
 
         if not video_indexes:
@@ -475,18 +585,9 @@ def fetch_magnet_metadata(
                     # Quick sanity check: confirm libtorrent actually flushed
                     # the tail bytes. Read 4 KB at the tail offset; if all zeros,
                     # the moov atom isn't there yet — fall through to the
-                    # head-only probe which will fail more cleanly.
-                    tail_present = False
-                    if real_size > HEAD_BYTES + TAIL_BYTES:
-                        try:
-                            with open(local_path, "rb") as _src:
-                                _src.seek(real_size - 4096)
-                                sample = _src.read(4096)
-                                tail_present = any(b != 0 for b in sample)
-                        except OSError as exc:
-                            logger.warning("Tail probe failed on %s: %s",
-                                            local_path, exc)
-                    if tail_present:
+                    # head-only probe which will fail more cleanly. A file
+                    # no larger than HEAD+TAIL is fully on disk (RB-20).
+                    if tail_is_present(local_path, real_size):
                         emit(f"Probing local file with tail bytes intact "
                              f"({real_size / 1024**3:.2f} GB)…")
                         # Pass real size for consistency. MP4 usually reports

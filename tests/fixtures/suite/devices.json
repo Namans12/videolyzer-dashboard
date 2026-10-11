@@ -1,0 +1,146 @@
+{
+ "schema": "videosuite-devices/1",
+ "tool_version": "0.2.0",
+ "devices": [
+  {
+   "id": "galaxy_tab_s9_ultra",
+   "label": "Samsung Galaxy Tab S9 Ultra (SM-X910 / SM-X916B)",
+   "rules_version": 2,
+   "verified_by_owner": false,
+   "display": {
+    "type": "AMOLED",
+    "width": 2960,
+    "height": 1848,
+    "hdr": [
+     "hdr10",
+     "hdr10plus",
+     "hlg"
+    ],
+    "peak_nits": [
+     640,
+     900
+    ]
+   },
+   "players": [
+    {
+     "id": "vlc",
+     "label": "VLC for Android",
+     "default": true,
+     "rule_counts": {
+      "official": 0,
+      "owner": 0,
+      "reviewed": 12,
+      "forum": 2,
+      "inferred": 19,
+      "unknown": 7
+     }
+    },
+    {
+     "id": "samsung_video",
+     "label": "Samsung Video (built-in)",
+     "default": false,
+     "rule_counts": {
+      "official": 0,
+      "owner": 0,
+      "reviewed": 7,
+      "forum": 2,
+      "inferred": 18,
+      "unknown": 13
+     }
+    }
+   ]
+  },
+  {
+   "id": "sony_bravia_8_ii",
+   "label": "Sony BRAVIA 8 II 65\" (K-65XR80M2 / K-65XR8M2), USB drive",
+   "rules_version": 2,
+   "verified_by_owner": false,
+   "display": {
+    "type": "QD-OLED",
+    "width": 3840,
+    "height": 2160,
+    "hdr": [
+     "hdr10",
+     "hlg",
+     "dolby_vision"
+    ],
+    "peak_nits": [
+     1400,
+     1800
+    ]
+   },
+   "players": [
+    {
+     "id": "builtin_usb",
+     "label": "Sony USB media player (built-in)",
+     "default": true,
+     "rule_counts": {
+      "official": 19,
+      "owner": 0,
+      "reviewed": 5,
+      "forum": 5,
+      "inferred": 5,
+      "unknown": 10
+     }
+    },
+    {
+     "id": "kodi",
+     "label": "Kodi on the TV (Dolby Vision compatibility mode on)",
+     "default": false,
+     "rule_counts": {
+      "official": 0,
+      "owner": 0,
+      "reviewed": 1,
+      "forum": 8,
+      "inferred": 26,
+      "unknown": 5
+     }
+    }
+   ]
+  },
+  {
+   "id": "vivobook_pro_16x",
+   "label": "ASUS Vivobook Pro 16X OLED M7600QE (Windows 11)",
+   "rules_version": 2,
+   "verified_by_owner": false,
+   "display": {
+    "type": "OLED",
+    "width": 3840,
+    "height": 2400,
+    "hdr": [],
+    "peak_nits": [
+     340,
+     400
+    ]
+   },
+   "players": [
+    {
+     "id": "vlc",
+     "label": "VLC 3.0.x (Direct3D11 output)",
+     "default": true,
+     "rule_counts": {
+      "official": 0,
+      "owner": 0,
+      "reviewed": 3,
+      "forum": 1,
+      "inferred": 32,
+      "unknown": 4
+     }
+    },
+    {
+     "id": "windows_player",
+     "label": "Windows Media Player / Movies & TV (with Store codec extensions)",
+     "default": false,
+     "rule_counts": {
+      "official": 0,
+      "owner": 0,
+      "reviewed": 1,
+      "forum": 2,
+      "inferred": 24,
+      "unknown": 13
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -1,4 +1,5 @@
 import errno
+import re
 import shutil
 import os
 import uuid
@@ -18,9 +19,15 @@ import asyncio
 import json
 
 from analysis import analyze_file, scan_folder
-from magnet import MagnetUnavailable, run_magnet_job_threaded
+from magnet import MagnetUnavailable, NoFreePort, port_allocator, run_magnet_job_threaded
 from comparison import compare_releases, composite_score, enrich_release
 from series_compare import is_series_comparison, build_series_comparison
+from request_guard import RequestGuard
+from jobs import TERMINAL, jobs
+import suite_routes
+from path_guard import (
+    PathRejected, iter_safe_video_files, make_file_filter, validate_user_path,
+)
 
 logger = logging.getLogger("video-analyzer.api")
 
@@ -30,14 +37,45 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024 * 1024    # 120 GB
 MIN_FREE_BYTES   = 20 * 1024 * 1024 * 1024  # 20 GB
 
-_jobs: dict[str, dict] = {}
+# The job store (jobs.py): locked, deep-copy reads, honest terminal states
+# (done / error / cancelled), retention of the last 20 finished jobs purged
+# inside ``create`` (no timers). Kept under its old name for the tests and docs.
+_jobs = jobs
+
+# Parallel analyses per batch/folder job.
+ANALYSIS_WORKERS = 4
+
+# Marker returned by the pool worker for a file skipped because the job was cancelled.
+_SKIPPED = object()
 
 
-def _cleanup_old_jobs() -> None:
-    """Keep only the 20 most recent completed jobs."""
-    done = [jid for jid, job in _jobs.items() if job["status"] in {"done", "error"}]
-    for jid in done[:-20]:
-        _jobs.pop(jid, None)
+def _emit(job_id: str, msg: str) -> None:
+    jobs.append_event(job_id, msg)
+
+
+def _guarded(job_id: str, worker):
+    """Wrap a per-file analyser so queued files are skipped once the job is cancelled."""
+    def run(path):
+        if jobs.is_cancelled(job_id):
+            return _SKIPPED
+        return worker(path)
+    return run
+
+
+def _end_job(job_id: str, done_msg: str, results: list | None = None) -> None:
+    """Emit the last event, THEN end the job (the SSE stream stops at a terminal
+    status, so an event added after it could be missed). A job whose cancel flag
+    is set ends ``cancelled`` and keeps whatever partial results it has."""
+    _emit(job_id, "Cancelled." if jobs.is_cancelled(job_id) else done_msg)
+    jobs.finish(job_id, results)
+
+
+def _fail_job(job_id: str, error: str, error_kind: str, msg: str | None = None) -> None:
+    """Emit the failure event, then end the job as ``error`` (``cancelled`` if the
+    cancel flag is set)."""
+    _emit(job_id, "Cancelled." if jobs.is_cancelled(job_id) else (msg or f"Error: {error}"))
+    jobs.fail(job_id, error, error_kind)
+
 
 def _patch_result_path(result: dict, temp_path: str, orig_name: str) -> None:
     result["file"] = orig_name
@@ -70,15 +108,22 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
                 )
         return await call_next(request)
 
+# add_middleware order: the LAST one added is the OUTERMOST. CORS must be outermost
+# so preflights are answered before the guard and the guard's 4xx for an allowed
+# origin still carry CORS headers.
 app.add_middleware(MaxBodySizeMiddleware)
+app.add_middleware(RequestGuard)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# /suite/... (devices, score, rank, compare): the installed VideoSuite as guarded jobs.
+suite_routes.install(app)
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -101,58 +146,100 @@ def check_disk_space() -> None:
 
 def _run_batch_job(job_id: str, saved_paths: list[str],
                    path_name_map: dict[str, str], fast: bool) -> None:
-    job    = _jobs[job_id]
     total  = len(saved_paths)
     done   = 0
     results: list = []
-    worker = partial(analyze_file, skip_dovi_scan=fast)
+    worker = _guarded(job_id, partial(analyze_file, skip_dovi_scan=fast))
 
-    def emit(msg: str) -> None:
-        job["events"].append({"msg": msg, "ts": time.time()})
-        job["progress"] = f"{done}/{total}"
+    _emit(job_id, f"Starting analysis of {total} file(s)…")
+    jobs.update(job_id, progress=f"{done}/{total}")
 
-    emit(f"Starting analysis of {total} file(s)…")
-
-    with ThreadPoolExecutor(max_workers=min(4, total)) as executor:
+    with ThreadPoolExecutor(max_workers=max(1, min(ANALYSIS_WORKERS, total))) as executor:
         future_map = {
             executor.submit(worker, path): (path, path_name_map[path])
             for path in saved_paths
         }
         for future in as_completed(future_map):
             temp_path, orig_name = future_map[future]
-            job["current"] = orig_name
+            skipped = False
             try:
                 result = future.result()
-                if result:
-                    _patch_result_path(result, temp_path, orig_name)
-                    results.append(result)
-                    emit(f"✓ {orig_name}")
+                if result is _SKIPPED:
+                    skipped = True          # cancelled before this file started
                 else:
-                    emit(f"✗ {orig_name} — no data extracted")
+                    jobs.update(job_id, current=orig_name)
+                    if result:
+                        _patch_result_path(result, temp_path, orig_name)
+                        results.append(result)
+                        _emit(job_id, f"✓ {orig_name}")
+                    else:
+                        _emit(job_id, f"✗ {orig_name} — no data extracted")
             except Exception as exc:
                 logger.warning("Analysis failed for %s: %s", orig_name, exc)
-                emit(f"✗ {orig_name} — {exc}")
+                _emit(job_id, f"✗ {orig_name} — {exc}")
             finally:
-                done += 1
-                job["progress"] = f"{done}/{total}"
+                if not skipped:
+                    done += 1
+                    jobs.update(job_id, progress=f"{done}/{total}")
                 try:
                     os.remove(temp_path)
                 except OSError:
                     pass
 
-    if results:
-        job["results"] = rank_results(results)
-        job["status"]  = "done"
-        emit(f"Done — {len(results)}/{total} analysed successfully.")
+    if results or jobs.is_cancelled(job_id):
+        _end_job(job_id, f"Done — {len(results)}/{total} analysed successfully.",
+                 rank_results(results))
     else:
-        job["status"] = "error"
-        job["error"]  = "No files could be analyzed."
-        emit("Error: no files could be analysed.")
-    threading.Timer(30.0, _cleanup_old_jobs).start()
+        _fail_job(job_id, "No files could be analyzed.", "analysis_failed",
+                  "Error: no files could be analysed.")
+
+
+def _run_single(job_id: str, path: str, name: str, fast: bool) -> None:
+    try:
+        if jobs.is_cancelled(job_id):
+            _end_job(job_id, "")            # cancelled before it started
+            return
+        _emit(job_id, f"Analyzing {name}…")
+        try:
+            result = analyze_file(path, skip_dovi_scan=fast)
+        except Exception as exc:
+            logger.warning("Analysis failed for %s: %s", name, exc)
+            _fail_job(job_id, str(exc), "analysis_failed")
+            return
+        if result:
+            _patch_result_path(result, path, name)
+            result["batch_rank"] = 1
+            _end_job(job_id, f"✓ {name}", [result])
+        else:
+            # RB-10: analyze_file returns None on its timeout or when nothing could
+            # be extracted; that is a failure, not an empty success.
+            _fail_job(job_id, "analysis timed out or failed", "timeout",
+                      f"✗ {name} — no data extracted")
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+_INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def _disk_name(name: str) -> str:
+    """``name`` made safe as a Windows file name: no ``:`` (it would create an alternate data stream), none of the
+    characters ``< > " / | ? *`` and backslash, no control characters; trailing dots and spaces removed (Windows
+    ignores them)."""
+    cleaned = _INVALID_FILENAME_CHARS.sub("", name).strip(" .")
+    return cleaned or "upload.bin"
+
+
+def _is_user_cancel(exc: BaseException) -> bool:
+    """magnet.py signals a user cancel with ``RuntimeError("Cancelled")``; that is not an error worth a traceback."""
+    return isinstance(exc, RuntimeError) and str(exc) == "Cancelled"
 
 
 def save_upload(file: UploadFile) -> tuple[str, str]:
-    original_name = os.path.basename(file.filename or "upload.bin")
+    original_name = os.path.basename(file.filename or "upload.bin")        # what the user sees
     
     # For large files, tell user to use path input instead
     # (uvicorn rejects huge uploads before we can even check size)
@@ -167,7 +254,7 @@ def save_upload(file: UploadFile) -> tuple[str, str]:
                 "directly into the text box. No upload needed for local files."
             )
         )
-    unique_name   = f"{uuid.uuid4().hex}_{original_name}"
+    unique_name   = f"{uuid.uuid4().hex}_{_disk_name(original_name)}"
     file_path     = os.path.join(UPLOAD_DIR, unique_name)
     bytes_written = 0
     chunk_size    = 1024 * 1024  # 1 MB
@@ -271,33 +358,7 @@ async def analyze_video(background_tasks: BackgroundTasks, request: Request, fas
 
     temp_path, orig_name = save_upload(file)   # type: ignore[arg-type]
 
-    job_id = uuid.uuid4().hex
-    _jobs[job_id] = {
-        "status": "running", "progress": "0/1",
-        "current": orig_name, "total": 1,
-        "results": [], "error": None, "events": [],
-    }
-
-    def _run_single(jid: str, path: str, name: str, f: bool) -> None:
-        job = _jobs[jid]
-        job["events"].append({"msg": f"Analyzing {name}…", "ts": time.time()})
-        try:
-            result = analyze_file(path, skip_dovi_scan=f)
-            if result:
-                _patch_result_path(result, path, name)
-                result["batch_rank"] = 1
-                job["results"] = [result]
-            job["status"] = "done"
-            job["events"].append({"msg": f"✓ {name}", "ts": time.time()})
-        except Exception as exc:
-            job["status"] = "error"
-            job["error"] = str(exc)
-        finally:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            threading.Timer(30.0, _cleanup_old_jobs).start()
+    job_id = jobs.create("single", progress="0/1", current=orig_name, total=1)
 
     background_tasks.add_task(_run_single, job_id, temp_path, orig_name, fast)
     return {"job_id": job_id, "total": 1}
@@ -327,35 +388,27 @@ async def analyze_multiple(
     if not saved_paths:
         raise HTTPException(status_code=400, detail="All uploaded files were rejected.")
 
-    job_id = uuid.uuid4().hex
-    _jobs[job_id] = {
-        "status": "running", "progress": f"0/{len(saved_paths)}",
-        "current": "", "total": len(saved_paths),
-        "results": [], "error": None, "events": [],
-    }
+    job_id = jobs.create("batch", progress=f"0/{len(saved_paths)}", total=len(saved_paths))
     background_tasks.add_task(_run_batch_job, job_id, saved_paths, path_name_map, fast)
     return {"job_id": job_id, "total": len(saved_paths)}
+
+
+def _validated_path(raw: str, *, must_be: str) -> str:
+    """Run the path guard and map a rejection to an HTTPException."""
+    try:
+        return str(validate_user_path(raw, must_be=must_be))
+    except PathRejected as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
 
 
 @app.get("/analyze-path/")
 def analyze_video_path(background_tasks: BackgroundTasks, path: str, fast: bool = Query(False)):
     """Accept a server-local file or folder path and run analysis as a background job.
-    Returns a `job_id` immediately and emits progress via the existing SSE `/progress/{job_id}` endpoint.
+    Returns a `job_id` immediately and emits progress via the SSE `/job/{job_id}/events` endpoint.
     """
-    path = path.strip().strip('"')
-    if not (os.path.isfile(path) or os.path.isdir(path)):
-        raise HTTPException(status_code=400, detail="File or folder does not exist.")
+    path = _validated_path(path, must_be="any")
 
-    job_id = uuid.uuid4().hex
-    _jobs[job_id] = {
-        "status": "running",
-        "progress": "0/1",
-        "current": "",
-        "total": 1,
-        "results": [],
-        "error": None,
-        "events": [],
-    }
+    job_id = jobs.create("path", progress="0/1", current="", total=1)
 
     background_tasks.add_task(_run_path_job, job_id, path, fast)
 
@@ -363,71 +416,79 @@ def analyze_video_path(background_tasks: BackgroundTasks, path: str, fast: bool 
 
 
 def _run_path_job(job_id: str, path: str, fast: bool) -> None:
-    job = _jobs[job_id]
-
-    def emit(msg: str) -> None:
-        job["events"].append({"msg": msg, "ts": time.time()})
-
-    emit("Job started")
+    _emit(job_id, "Job started")
 
     results = []
     if os.path.isdir(path):
-        emit(f"Scanning folder: {os.path.basename(path)}…")
+        _emit(job_id, f"Scanning folder: {os.path.basename(path)}…")
         try:
-            file_paths = []
-            for root, _, files in os.walk(path):
-                for f in files:
-                    if f.lower().endswith((".mkv", ".mp4", ".ts", ".m2ts", ".hevc", ".h265")):
-                        file_paths.append(os.path.join(root, f))
-            
-            job["total"] = len(file_paths)
-            worker = partial(analyze_file, skip_dovi_scan=fast)
-            
-            with ThreadPoolExecutor(max_workers=min(4, len(file_paths))) as executor:
-                future_map = {executor.submit(worker, p): p for p in file_paths}
-                done = 0
-                for future in as_completed(future_map):
-                    p = future_map[future]
-                    job["current"] = os.path.basename(p)
-                    try:
-                        result = future.result()
-                        if result:
-                            results.append(result)
-                            emit(f"✓ {os.path.basename(p)}")
-                        else:
-                            emit(f"✗ {os.path.basename(p)} — no data")
-                    except Exception as exc:
-                        logger.warning("scan_folder: failed on %s — %s", p, exc)
-                        emit(f"✗ {os.path.basename(p)} — {exc}")
-                    finally:
-                        done += 1
-                        job["progress"] = f"{done}/{len(file_paths)}"
+            # os.walk follows junctions: every directory and file is re-validated
+            # so a junction cannot lead outside the allowed roots or to a share.
+            file_paths = list(iter_safe_video_files(path))
         except Exception as exc:
             logger.warning("Failed scanning folder %s — %s", path, exc)
-            job["error"] = str(exc)
-            emit(f"Error scanning folder: {exc}")
+            _fail_job(job_id, str(exc), "internal", f"Error scanning folder: {exc}")
+            return
+
+        if not file_paths:
+            # RB-11: ThreadPoolExecutor(max_workers=0) raised ValueError and the job
+            # used to end "done" with a confusing error text. Check BEFORE the pool.
+            _fail_job(job_id, "no video files found", "no_files",
+                      "Error: no video files found in this folder.")
+            return
+
+        jobs.update(job_id, total=len(file_paths), progress=f"0/{len(file_paths)}")
+        worker = _guarded(job_id, partial(analyze_file, skip_dovi_scan=fast))
+        done = 0
+        with ThreadPoolExecutor(max_workers=max(1, min(ANALYSIS_WORKERS, len(file_paths)))) as executor:
+            future_map = {executor.submit(worker, p): p for p in file_paths}
+            for future in as_completed(future_map):
+                p = future_map[future]
+                skipped = False
+                try:
+                    result = future.result()
+                    if result is _SKIPPED:
+                        skipped = True      # cancelled before this file started
+                    else:
+                        jobs.update(job_id, current=os.path.basename(p))
+                        if result:
+                            results.append(result)
+                            _emit(job_id, f"✓ {os.path.basename(p)}")
+                        else:
+                            _emit(job_id, f"✗ {os.path.basename(p)} — no data")
+                except Exception as exc:
+                    logger.warning("scan_folder: failed on %s — %s", p, exc)
+                    _emit(job_id, f"✗ {os.path.basename(p)} — {exc}")
+                finally:
+                    if not skipped:
+                        done += 1
+                        jobs.update(job_id, progress=f"{done}/{len(file_paths)}")
+
+        if not results and not jobs.is_cancelled(job_id):
+            _fail_job(job_id, "No files could be analyzed.", "analysis_failed",
+                      "Error: no files could be analysed.")
+            return
     else:
         base = os.path.basename(path)
-        emit(f"Analyzing {base}…")
+        if jobs.is_cancelled(job_id):
+            _end_job(job_id, "")
+            return
+        _emit(job_id, f"Analyzing {base}…")
         try:
             result = analyze_file(path, skip_dovi_scan=fast)
-            if result:
-                results.append(result)
-                emit(f"✓ {base}")
-            else:
-                emit(f"✗ {base} — no data extracted")
         except Exception as exc:
             logger.warning("Failed analyzing %s — %s", path, exc)
-            job["error"] = str(exc)
-            emit(f"Error: {exc}")
+            _fail_job(job_id, str(exc), "analysis_failed")
+            return
+        if result:
+            results.append(result)
+            _emit(job_id, f"✓ {base}")
+        else:
+            _fail_job(job_id, "analysis timed out or failed", "timeout",
+                      f"✗ {base} — no data extracted")
+            return
 
-    job["results"] = rank_results(results)
-    job["status"]  = "done"
-    emit("Done.")
-    threading.Timer(30.0, _cleanup_old_jobs).start()
-
-
-_magnet_cancel: dict[str, bool] = {}
+    _end_job(job_id, "Done.", rank_results(results))
 
 
 @app.post("/magnet/")
@@ -454,48 +515,58 @@ async def analyze_magnet(background_tasks: BackgroundTasks, request: Request,
         raise HTTPException(status_code=400,
                             detail="Not a magnet URI — must start with 'magnet:?'.")
 
-    job_id = uuid.uuid4().hex
-    _jobs[job_id] = {
-        "status": "running",
-        "progress": "metadata",
-        "current": "",
-        "total": 0,
-        "results": [],
-        "error": None,
-        "events": [],
-        "magnet_files": [],
-        "magnet_torrent": None,
-    }
-    _magnet_cancel[job_id] = False
+    job_id = jobs.create("magnet", progress="metadata", current="", total=0,
+                         magnet_files=[], magnet_torrent=None)
     background_tasks.add_task(_run_magnet_job, job_id, magnet_uri, fast, hdr10plus)
     return {"job_id": job_id}
 
 
+def _request_cancel_or_404(job_id: str) -> dict:
+    if not jobs.request_cancel(job_id):
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return {"ok": True}
+
+
+@app.post("/job/{job_id}/cancel")
+def cancel_job(job_id: str):
+    """Ask any job to stop. The runner ends it as ``cancelled`` (partial results kept)."""
+    return _request_cancel_or_404(job_id)
+
+
 @app.post("/magnet/{job_id}/cancel")
 def cancel_magnet(job_id: str):
-    if job_id not in _jobs:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    _magnet_cancel[job_id] = True
-    return {"ok": True}
+    return _request_cancel_or_404(job_id)
+
+
+def _magnet_error_kind(exc: BaseException) -> str:
+    if isinstance(exc, MagnetUnavailable):
+        return "unavailable"
+    if isinstance(exc, NoFreePort):
+        return "busy"
+    if isinstance(exc, TimeoutError):
+        return "timeout"
+    return "internal"
 
 
 def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool,
                     enable_hdr10plus: bool = False) -> None:
-    job = _jobs[job_id]
-
     def emit(msg: str) -> None:
-        job["events"].append({"msg": msg, "ts": time.time()})
+        _emit(job_id, msg)
 
     def cancel_check() -> bool:
-        return _magnet_cancel.get(job_id, False)
+        return jobs.is_cancelled(job_id)
 
     emit("Magnet job started")
+    port: int | None = None
     try:
+        # One process-wide pool: never share a listen port with another session.
+        port = port_allocator.acquire()
         out = run_magnet_job_threaded(
             magnet_uri,
             skip_dovi_scan=fast,
             emit=emit,
             cancel_check=cancel_check,
+            listen_port=port,
             enable_hdr10plus=enable_hdr10plus,
         )
         results = rank_results(out.get("analyses", []))
@@ -508,33 +579,28 @@ def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool,
                             magnet_uri=magnet_uri)
             for r in results
         ]
-        job["results"] = results            # legacy field — still the raw analyses
-        job["enriched"] = enriched          # new: with intel + verification + badges
-        job["magnet_files"] = out.get("files", [])
-        job["magnet_torrent"] = {
-            "name": torrent_name,
-            "info_hash": out.get("info_hash"),
-        }
-        job["total"] = len(out.get("files", []))
-        job["progress"] = f"{len(results)}/{job['total']}"
-        job["status"] = "done"
-        emit(f"Done — {len(results)} playable / {job['total']} total file(s).")
+        files = out.get("files", [])
+        jobs.update(
+            job_id,
+            enriched=enriched,                  # new: with intel + verification + badges
+            magnet_files=files,
+            magnet_torrent={"name": torrent_name, "info_hash": out.get("info_hash")},
+            total=len(files),
+            progress=f"{len(results)}/{len(files)}",
+        )
+        _end_job(job_id, f"Done — {len(results)} playable / {len(files)} total file(s).",
+                 results)                       # legacy field — still the raw analyses
     except MagnetUnavailable as exc:
-        job["status"] = "error"
-        job["error"] = str(exc)
-        emit(f"Error: {exc}")
+        _fail_job(job_id, str(exc), _magnet_error_kind(exc))
     except TimeoutError as exc:
-        job["status"] = "error"
-        job["error"] = str(exc)
-        emit(f"Timed out: {exc}")
+        _fail_job(job_id, str(exc), _magnet_error_kind(exc), f"Timed out: {exc}")
     except Exception as exc:
-        logger.exception("Magnet job %s failed", job_id)
-        job["status"] = "error"
-        job["error"] = str(exc)
-        emit(f"Error: {exc}")
+        if not _is_user_cancel(exc):
+            logger.exception("Magnet job %s failed", job_id)
+        _fail_job(job_id, str(exc), _magnet_error_kind(exc))
     finally:
-        _magnet_cancel.pop(job_id, None)
-        threading.Timer(30.0, _cleanup_old_jobs).start()
+        if port is not None:
+            port_allocator.release(port)
 
 
 # ── Multi-magnet comparison ──────────────────────────────────────────────────
@@ -547,7 +613,8 @@ def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool,
 # of incoming peer slots. Empirically 2 concurrent is the sweet spot.
 COMPARE_MAX_MAGNETS    = 8
 COMPARE_PARALLEL_LIMIT = 2
-COMPARE_PORT_BASE      = 6881
+# Listen ports come from the process-wide ``magnet.port_allocator`` (shared with
+# /magnet/), so compare slots never collide with single jobs or another compare.
 
 
 @app.post("/compare-magnets/")
@@ -587,44 +654,27 @@ async def compare_magnets(background_tasks: BackgroundTasks, request: Request,
                                 detail=f"magnets[{i}] is not a magnet URI.")
         cleaned.append(m)
 
-    job_id = uuid.uuid4().hex
-    _jobs[job_id] = {
-        "status":     "running",
-        "progress":   f"0/{len(cleaned)}",
-        "current":    "",
-        "total":      len(cleaned),
-        "results":    [],
-        "error":      None,
-        "events":     [],
-        "per_magnet": [],
-        "comparison": None,
-        "winner":     None,
-        "mode":       None,
-        "episode_comparison": None,
-        "dropped":    [],
-    }
-    _magnet_cancel[job_id] = False
+    job_id = jobs.create(
+        "compare", progress=f"0/{len(cleaned)}", current="", total=len(cleaned),
+        per_magnet=[], comparison=None, winner=None, mode=None,
+        episode_comparison=None, dropped=[],
+    )
     background_tasks.add_task(_run_compare_job, job_id, cleaned, fast, hdr10plus)
     return {"job_id": job_id, "total": len(cleaned)}
 
 
 @app.post("/compare-magnets/{job_id}/cancel")
 def cancel_compare(job_id: str):
-    if job_id not in _jobs:
-        raise HTTPException(status_code=404, detail="Job not found.")
-    _magnet_cancel[job_id] = True
-    return {"ok": True}
+    return _request_cancel_or_404(job_id)
 
 
 def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
                      enable_hdr10plus: bool = False) -> None:
-    job = _jobs[job_id]
-
     def emit(msg: str) -> None:
-        job["events"].append({"msg": msg, "ts": time.time()})
+        _emit(job_id, msg)
 
     def cancel_check() -> bool:
-        return _magnet_cancel.get(job_id, False)
+        return jobs.is_cancelled(job_id)
 
     use_parallel = len(magnets) > 2
     emit(f"Comparing {len(magnets)} magnet(s) — "
@@ -640,20 +690,32 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
         "analyses": [],
         "events":  [],
     } for i, m in enumerate(magnets)]
-    job["per_magnet"] = per_magnet
+    # The store holds this same list: every change to a record goes through
+    # ``update_rec`` (under the store lock) so a concurrent GET /job/{id} deep copy
+    # never sees a half-written record. Reads below happen after the workers end.
+    jobs.update(job_id, per_magnet=per_magnet)
     done_count = 0
+    count_lock = threading.Lock()
 
-    def _run_one(idx: int, magnet_uri: str, port: int) -> None:
+    def update_rec(idx: int, fn) -> None:
+        if not jobs.mutate(job_id, lambda _job: fn(per_magnet[idx])):
+            fn(per_magnet[idx])
+
+    def _run_one(idx: int, magnet_uri: str) -> None:
         nonlocal done_count
-        rec = per_magnet[idx]
-        rec["status"] = "running"
+        if cancel_check():
+            return                      # queued behind a cancel: never starts, stays "pending"
+        update_rec(idx, lambda rec: rec.update(status="running"))
+        port: int | None = None
 
         def emit_one(msg: str) -> None:
-            rec["events"].append({"msg": msg, "ts": time.time()})
+            ev = {"msg": msg, "ts": time.time()}
+            update_rec(idx, lambda rec: rec["events"].append(ev))
             # Aggregate to the top-level event stream with a magnet prefix.
             emit(f"[#{idx + 1}] {msg}")
 
         try:
+            port = port_allocator.acquire()
             out = run_magnet_job_threaded(
                 magnet_uri,
                 skip_dovi_scan=fast,
@@ -662,36 +724,38 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
                 listen_port=port,
                 enable_hdr10plus=enable_hdr10plus,
             )
-            rec["torrent"] = {
-                "name": out.get("torrent_name"),
-                "info_hash": out.get("info_hash"),
-            }
-            rec["files"]    = out.get("files", [])
-            rec["analyses"] = out.get("analyses", [])
-            rec["status"]   = "done"
+            update_rec(idx, lambda rec: rec.update(
+                torrent={"name": out.get("torrent_name"),
+                         "info_hash": out.get("info_hash")},
+                files=out.get("files", []),
+                analyses=out.get("analyses", []),
+                status="done",
+            ))
         except MagnetUnavailable as exc:
-            rec["status"] = "error"
-            rec["error"]  = str(exc)
+            update_rec(idx, lambda rec: rec.update(status="error", error=str(exc)))
             emit_one(f"Error: {exc}")
         except TimeoutError as exc:
-            rec["status"] = "error"
-            rec["error"]  = str(exc)
+            update_rec(idx, lambda rec: rec.update(status="error", error=str(exc)))
             emit_one(f"Timed out: {exc}")
         except Exception as exc:  # noqa: BLE001
-            logger.exception("compare-magnets job %s magnet %d failed", job_id, idx)
-            rec["status"] = "error"
-            rec["error"]  = str(exc)
+            if not _is_user_cancel(exc):
+                logger.exception("compare-magnets job %s magnet %d failed", job_id, idx)
+            update_rec(idx, lambda rec: rec.update(status="error", error=str(exc)))
             emit_one(f"Error: {exc}")
         finally:
-            done_count += 1
-            job["progress"] = f"{done_count}/{len(magnets)}"
+            if port is not None:
+                port_allocator.release(port)
+            # `done_count += 1` from two pool threads can lose an update: lock it.
+            with count_lock:
+                done_count += 1
+                jobs.update(job_id, progress=f"{done_count}/{len(magnets)}")
 
     try:
         if use_parallel:
             # Bounded parallel — each session on its own port.
             with ThreadPoolExecutor(max_workers=COMPARE_PARALLEL_LIMIT) as ex:
                 futures = [
-                    ex.submit(_run_one, i, m, COMPARE_PORT_BASE + i)
+                    ex.submit(_run_one, i, m)
                     for i, m in enumerate(magnets)
                 ]
                 for _ in as_completed(futures):
@@ -703,7 +767,13 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
                 if cancel_check():
                     emit("Cancelled — stopping remaining magnet jobs.")
                     break
-                _run_one(i, m, COMPARE_PORT_BASE + i)
+                _run_one(i, m)
+
+        if cancel_check():
+            # A cancelled job keeps its partial per_magnet records and builds no
+            # comparison.
+            _end_job(job_id, "")
+            return
 
         # ── Build comparison from whichever magnets produced analyses ───────
         # Two torrents that are episodic season packs get a per-episode
@@ -711,7 +781,7 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
         # representative-file path. We ALWAYS build the representative-file
         # `comparison` too so the overview matrix renders in both modes.
         series_mode = is_series_comparison(per_magnet)
-        job["mode"] = "series" if series_mode else "movie"
+        jobs.update(job_id, mode="series" if series_mode else "movie")
 
         # Surface magnets that produced NO analysis (timed out / no peers /
         # unparseable) so the UI can show "N of M analyzed" instead of silently
@@ -730,7 +800,7 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
             for rec in per_magnet
             if rec.get("status") != "done" or not rec.get("analyses")
         ]
-        job["dropped"] = dropped
+        jobs.update(job_id, dropped=dropped)
         if dropped:
             emit(f"⚠ {len(dropped)} of {len(per_magnet)} magnet(s) produced no "
                  f"analyzable file — see 'dropped' in the result.")
@@ -751,9 +821,8 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
             ))
 
         if not enriched_releases:
-            job["status"] = "error"
-            job["error"]  = "No magnet produced analyzable files."
-            emit("Done — no comparable releases.")
+            _fail_job(job_id, "No magnet produced analyzable files.", "no_analyses",
+                      "Done — no comparable releases.")
             return
 
         # ONE ranking everywhere: order releases by pick_winner's EXACT key
@@ -774,15 +843,14 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
         )
 
         comparison = compare_releases(enriched_releases)
-        job["comparison"] = comparison
         # Top-level winner stays aligned with the representative-file matrix
         # columns (the season winner lives in episode_comparison.summary).
-        job["winner"]     = comparison["winner"]
+        jobs.update(job_id, comparison=comparison, winner=comparison["winner"])
 
         if series_mode:
             emit("Series detected — matching episodes across torrents…")
             episode_comparison = build_series_comparison(per_magnet)
-            job["episode_comparison"] = episode_comparison
+            jobs.update(job_id, episode_comparison=episode_comparison)
             s = episode_comparison["summary"]
             emit(f"Series comparison built — {s['total_episodes']} episode(s), "
                  f"{s['contested_count']} head-to-head.")
@@ -794,24 +862,18 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
                 emit(f"Winner: {winner['winner_name']} "
                      f"({comparison['releases'][winner['winner_index']]['composite_score']}/100)")
 
-        job["status"] = "done"
-        emit("Done — comparison built.")
+        _end_job(job_id, "Done — comparison built.")
     except Exception as exc:
         logger.exception("compare-magnets job %s failed", job_id)
-        job["status"] = "error"
-        job["error"]  = str(exc)
-        emit(f"Error: {exc}")
-    finally:
-        _magnet_cancel.pop(job_id, None)
-        threading.Timer(30.0, _cleanup_old_jobs).start()
+        _fail_job(job_id, str(exc), "internal")
 
 
 @app.get("/scan-folder/")
 def scan_folder_api(path: str, fast: bool = Query(False)):
-    path = path.strip().strip('"')
-    if not os.path.isdir(path):
-        raise HTTPException(status_code=400, detail="Folder does not exist.")
-    results = scan_folder(path, skip_dovi_scan=fast)
+    path = _validated_path(path, must_be="dir")
+    # scan_folder's os.walk follows junctions: every walked file is re-validated
+    # (allowed roots, UNC and network-drive checks), roots configured or not.
+    results = scan_folder(path, skip_dovi_scan=fast, file_filter=make_file_filter())
     if not results:
         raise HTTPException(status_code=404, detail="No supported video files found in this folder.")
     return results
@@ -819,27 +881,32 @@ def scan_folder_api(path: str, fast: bool = Query(False)):
 
 @app.get("/job/{job_id}")
 def get_job(job_id: str):
-    job = _jobs.get(job_id)
-    if not job:
+    job = jobs.get(job_id)
+    if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     return job
 
 
 @app.get("/job/{job_id}/events")
 async def stream_job_events(job_id: str):
-    import asyncio
-    job = _jobs.get(job_id)
-    if not job:
+    if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found.")
 
     async def event_gen():
         seen = 0
         while True:
-            events = job.get("events", [])
-            while seen < len(events):
-                yield f"data: {json.dumps(events[seen])}\n\n"
-                seen += 1
-            if job["status"] in {"done", "error"}:
+            # Re-read the store every iteration: it hands out copies, so a reference
+            # taken once would never see new events. The status is read together
+            # with the events; runners emit their last event before ending the job.
+            snap = jobs.events_and_status(job_id, seen)
+            if snap is None:               # purged (or cleared) while streaming
+                yield "data: __done__\n\n"
+                return
+            events, status = snap
+            for ev in events:
+                yield f"data: {json.dumps(ev)}\n\n"
+            seen += len(events)
+            if status in TERMINAL:
                 yield "data: __done__\n\n"
                 return
             await asyncio.sleep(0.25)

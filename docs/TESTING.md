@@ -1,8 +1,63 @@
 # Testing & Verification
 
-The project has no formal test suite. This doc documents the manual recipes
-that exercise the system end-to-end, plus the cheap module-level smoke tests
-each new module ships with.
+The backend has an automated pytest suite (`tests/`) plus the manual
+end-to-end recipes below. The frontend has no automated tests.
+
+## Automated backend tests
+
+One-time setup (from the repo root, Windows PowerShell):
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+```
+
+Run:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Notes:
+
+- `pytest.ini` sets `testpaths = tests`, `pythonpath = .`, `addopts = -ra`.
+- Tests use fakes only (`analyze_file`, `run_magnet_job_threaded`); no real
+  torrent, ffmpeg, MediaInfo or dovi_tool is started and libtorrent is not
+  needed. Files are created under pytest's `tmp_path`; the real `uploads/`
+  folder is never touched (`tests/conftest.py` redirects `main.UPLOAD_DIR`).
+- The `client` fixture is `TestClient(main.app, base_url="http://localhost")`.
+  FastAPI's TestClient runs background tasks to completion before the response
+  returns, so HTTP tests assert final job states only.
+- `tests/test_contract_shapes.py` freezes the current job-dict keys, SSE line
+  format, route response keys and `rank_results` ordering. Later changes may
+  only ADD keys; changing a frozen value must be a deliberate, documented change.
+
+- `tests/test_docs_contract.py` keeps the README honest: every route of the app
+  (the lazily included `/suite` router flattened, framework docs routes
+  excluded) must be mentioned in `README.md`, and every environment variable
+  read by the top-level `*.py` files (found by AST: `os.environ.get/[]`,
+  `os.getenv`, `ENV_*` constants; never `.venv`, `tests`, `scripts`) must be
+  named there. Adding a route or a variable without documenting it fails the suite.
+- `tests/fixtures/suite/*.json` are real outputs of `python -m videosuite
+  <cmd> --json` (tool_version 0.2.0) on generated 1-second clips; the paths in
+  them were replaced by `C:\fixtures\suite`. `devices.json` was captured through
+  `SuiteClient` against the Comparizer working tree.
+
+### Live suite test (opt-in)
+
+`tests/test_live_suite.py` runs the REAL `devices` command and a real `score` on
+one tiny clip it generates under `tmp_path` with ffmpeg (PATH, or the suite's own
+`ffmpeg\bin`/`tools\bin`; skipped when none is found). It is skipped unless
+`VIDEOLYZER_LIVE_SUITE` is `1`. The suite's record cache is redirected into
+`tmp_path` (`VC_CACHE_DIR`); no owner media is touched.
+
+```powershell
+$env:VIDEOLYZER_LIVE_SUITE = "1"
+# only when the suite is not the one in D:\VideoComparatorPro\setup\env.path:
+$env:VIDEOSUITE_PYTHON = "D:\VideoComparatorPro\.venv\Scripts\python.exe"
+$env:VIDEOSUITE_ROOT   = "D:\VideoComparatorPro"
+.\.venv\Scripts\python.exe -m pytest tests/test_live_suite.py -q
+```
 
 ## Module smoke tests
 
@@ -103,7 +158,7 @@ plus HDR10+ + MP4 container. Trust score should be 100/100 for both
 
 ## What to check after a backend change
 
-1. `python -c "from main import app; print(len(app.routes))"` — imports clean.
+1. `.\.venv\Scripts\python.exe -m pytest -q` — all tests pass.
 2. Hit `GET /health/` — server boots.
 3. Run the module's `__main__` smoke test if you touched a parser/scorer.
 4. Run a single-magnet job end-to-end (use a small public-domain torrent

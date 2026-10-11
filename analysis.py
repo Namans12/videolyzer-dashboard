@@ -9,9 +9,9 @@ import tempfile
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
-from typing import Any
+from typing import Any, Callable, Optional
 
-VIDEO_EXTENSIONS = (".mkv", ".mp4", ".ts", ".m2ts", ".hevc", ".h265")
+VIDEO_EXTENSIONS = (".mkv", ".mp4", ".ts", ".m2ts", ".hevc", ".h265", ".m4v")
 
 MEDIAINFO_TIMEOUT_SECONDS = 90
 FFPROBE_TIMEOUT_SECONDS   = 90
@@ -20,6 +20,9 @@ DOVI_TIMEOUT_SECONDS      = 60
 FFMPEG_SAMPLE_FRAMES      = 30    # 30 frames (~1.25s) — enough for DV profile detection
 
 logger = logging.getLogger("video-analyzer.analysis")
+
+# layer_reason for a FEL/MEL verdict taken from the filename alone (RB-4, RB-28).
+FILENAME_HINT_REASON = "filename hint (unverified)"
 
 # ── Sony Bravia 8 Mark II ────────────────────────────────────────────────────
 BRAVIA_8_II: dict[str, Any] = {
@@ -38,6 +41,9 @@ BRAVIA_8_II: dict[str, Any] = {
         "8.1": 35, "8.4": 32, "5": 30, "8.x": 27, "8.2": 25,
         "7-MEL": 30, "7-FEL": 22, "7": 26,
         "4": 15, "None": 0,
+        # Non-DV base scores (RB-1). PROVISIONAL and owner-tunable: score_for_tv
+        # classifies a file without Dolby Vision as HDR10 / HLG / SDR.
+        "HDR10": 28, "HLG": 24, "SDR": 12,
     },
     "usb_containers": {"MKV", "MP4", "TS", "M2TS"},
     "usb_video":      {"hevc", "h.265", "h265", "avc", "h.264", "h264", "vp9", "av1"},
@@ -562,7 +568,8 @@ def get_ffprobe_dovi_side_data(ffprobe_video: dict[str, Any] | None) -> dict[str
 
 def parse_profile(text: str) -> str:
     lowered = text.lower()
-    match = re.search(r"dvhe\.(\d{2})", lowered)
+    # HEVC (dvhe, dvh1) and AVC (dvav, dva1) Dolby Vision codec strings.
+    match = re.search(r"\bdv(?:he|h1|av|a1)\.(\d{2})", lowered)
     if match: return str(int(match.group(1)))
     match = re.search(r"profile[:\s]+(\d+)", lowered)
     if match: return str(int(match.group(1)))
@@ -593,14 +600,23 @@ def build_profile_label(base_profile: str, video_track: dict[str, Any] | None,
 
 def detect_layer_variant(filepath: str, base_profile: str, el: str,
                           video_track: dict[str, Any] | None,
-                          ffprobe_video: dict[str, Any] | None) -> tuple[str, str]:
+                          ffprobe_video: dict[str, Any] | None,
+                          layer: str | None = None) -> tuple[str, str]:
+    # ``layer`` is the FEL/MEL verdict reported by dovi_tool; it wins over every hint.
+    if layer in {"FEL", "MEL"} and base_profile == "7":
+        return layer, f"dovi_tool reports {layer}."
     if base_profile != "7" or el != "Yes":
         return "Single-layer", "Not a profile 7 dual-layer stream."
     name      = os.path.basename(filepath).lower()
     hdr_text  = lower_text(get_hdr_summary(video_track, ffprobe_video))
     dovi_side = get_ffprobe_dovi_side_data(ffprobe_video)
-    if "fel" in name and "mel" not in name: return "FEL", "Filename hint matched FEL."
-    if "mel" in name and "fel" not in name: return "MEL", "Filename hint matched MEL."
+    # Whole-word tokens only ("Fellowship", "Camelot" must not match). A filename
+    # is a hint, never proof: the reason says so and score_confidence ignores it.
+    # (Lookarounds instead of \b so "P7_FEL_x" with underscores still matches.)
+    has_fel = re.search(r"(?<![a-z0-9])fel(?![a-z0-9])", name) is not None
+    has_mel = re.search(r"(?<![a-z0-9])mel(?![a-z0-9])", name) is not None
+    if has_fel and not has_mel: return "FEL", FILENAME_HINT_REASON
+    if has_mel and not has_fel: return "MEL", FILENAME_HINT_REASON
     if dovi_side:
         compat_id = dovi_side.get("dv_bl_signal_compatibility_id")
         if compat_id is not None and ("profile 7" in hdr_text or "dolby vision" in hdr_text):
@@ -649,6 +665,8 @@ def estimate_layer_variant_from_bitrate(file_path: str) -> str | None:
 
 def get_audio_quality_score(label: str, details: str) -> int:
     text = f"{label} {details}".lower()
+    # "E-AC-3" / "E-AC3" must not fall through to the plain AC-3 token (RB-6).
+    text = text.replace("e-ac-3", "eac3").replace("e-ac3", "eac3")
     if "truehd" in text:              return 5
     if "eac3" in text or "ddp" in text or "dolby digital plus" in text: return 10
     if "dts-hd" in text or "dts x" in text or "dtsx" in text: return 7
@@ -765,18 +783,99 @@ def get_primary_audio_summary(
     return "Unknown", "Unknown audio", 0
 
 
+_LOSSLESS_AUDIO_HINTS = ("truehd", "mlp", "dts-hd ma", "dts-hd master", "dts hd master",
+                         "master audio", "xll", "flac", "pcm", "lpcm", "alac")
+_DTSX_HINTS = ("xll x", "dts:x", "dts-x")
+
+
+def _first_int(value: Any) -> int | None:
+    match = re.search(r"\d+", str(value or ""))
+    return int(match.group(0)) if match else None
+
+
+def build_audio_tracks(
+    mediainfo_audio_tracks: list[dict[str, Any]],
+    ffprobe_audio_streams: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """One normalised record per audio track: ``{codec, channels, atmos, dtsx,
+    lossless, language, default}``.
+
+    Same precedence as ``get_primary_audio_summary``: MediaInfo when it has audio
+    tracks, otherwise ffprobe. Unlike the summary line (best track only, commercial
+    name only) this keeps every track and reads the fields where the object-audio
+    markers really live: ``Format_AdditionalFeatures`` carries ``JOC`` (Atmos in
+    DD+) and ``XLL X`` (DTS:X), ``Format_Commercial_IfAny`` names TrueHD Atmos.
+    """
+    tracks: list[dict[str, Any]] = []
+    if mediainfo_audio_tracks:
+        for t in mediainfo_audio_tracks:
+            commercial = lower_text(t.get("Format_Commercial_IfAny"))
+            title      = lower_text(t.get("Title"))
+            features   = lower_text(t.get("Format_AdditionalFeatures"))
+            codec      = normalize_text(t.get("Format_Commercial_IfAny") or t.get("Format") or "Audio")
+            marker_text = f"{commercial} {title} {features}"
+            atmos = ("atmos" in commercial or "atmos" in title
+                     or "joc" in features or "joint object" in features)
+            dtsx  = any(h in marker_text for h in _DTSX_HINTS)
+            fmt_text = f"{lower_text(t.get('Format'))} {commercial} {features}"
+            lossless = (lower_text(t.get("Compression_Mode")) == "lossless"
+                        or any(h in fmt_text for h in _LOSSLESS_AUDIO_HINTS))
+            tracks.append({
+                "codec":    codec,
+                "channels": _first_int(t.get("Channels")),
+                "atmos":    bool(atmos),
+                "dtsx":     bool(dtsx),
+                "lossless": bool(lossless),
+                "language": normalize_text(t.get("Language")),
+                "default":  lower_text(t.get("Default")) == "yes",
+            })
+        return tracks
+
+    for s in ffprobe_audio_streams or []:
+        codec_name = normalize_text(s.get("codec_name", "audio"))
+        profile    = lower_text(s.get("profile"))
+        tags       = s.get("tags") or {}
+        tag_text   = lower_text(json.dumps(tags))
+        atmos = "atmos" in profile or "atmos" in tag_text
+        dtsx  = any(h in profile for h in _DTSX_HINTS) or "dts:x" in tag_text
+        lossless = any(h in f"{lower_text(codec_name)} {profile}" for h in _LOSSLESS_AUDIO_HINTS)
+        tracks.append({
+            "codec":    codec_name.upper(),
+            "channels": _first_int(s.get("channels")),
+            "atmos":    bool(atmos),
+            "dtsx":     bool(dtsx),
+            "lossless": bool(lossless),
+            "language": normalize_text(tags.get("language")),
+            "default":  bool((s.get("disposition") or {}).get("default")),
+        })
+    return tracks
+
+
 # ── Source heuristics ────────────────────────────────────────────────────────
 
 def guess_source(file_name: str, bitrate_mbps: float, base_profile: str, el: str) -> str:
+    # RB-18: the release-name parser decides, not substring tests ("nf" used to
+    # match "Infinity" and "Inferno"). Imported lazily to keep analysis free of
+    # a module-level dependency on the parser.
+    import filename_intel
+
     name = file_name.lower()
-    if "remux" in name:                                            return "REMUX"
-    if "uhd" in name and ("bluray" in name or "blu-ray" in name):  return "UHD BluRay"
-    if "bluray" in name or "blu-ray" in name or "bdremux" in name or "bdrip" in name:
+    intel = filename_intel.parse_release_name(file_name)
+    src = intel.get("source")
+    if src == "BluRay":
+        # Keep the older whole-name behaviour: "BDRemux" (no word boundary
+        # before "remux") and "UHD ... BluRay" with the tags apart stay
+        # REMUX / UHD BluRay.
+        if "remux" in name:   return "REMUX"
+        if "uhd" in name and ("bluray" in name or "blu-ray" in name):
+            return "UHD BluRay"
         return "BluRay Encode"
-    if any(x in name for x in ("amzn", "amazon", "nf", "netflix",
-                                "dsnp", "disney", "hmax", "hulu",
-                                "atvp", "appletv", "pcok", "peacock",
-                                "pmtp", "paramount", "web-dl", "webrip")):
+    if src == "REMUX":        return "REMUX"
+    if src == "UHD BluRay":   return "UHD BluRay"
+    if src == "WEBRip":       return "WEBRip"
+    if src in ("WEB-DL", "WEB"):
+        return "WEB-DL"
+    if src is None and intel.get("platform"):
         return "WEB-DL"
     if base_profile == "7" and el == "Yes": return "Likely BluRay"
     if bitrate_mbps > 60:                   return "Likely REMUX"
@@ -786,6 +885,19 @@ def guess_source(file_name: str, bitrate_mbps: float, base_profile: str, el: str
 
 
 # ── TV-aware scoring ─────────────────────────────────────────────────────────
+
+_NON_DV_PROFILES = {"None", "", "Unknown"}
+
+
+def classify_non_dv_hdr(hdr_summary: str) -> str:
+    """Classify a file without Dolby Vision as "HLG", "HDR10" or "SDR" (RB-1)."""
+    h = lower_text(hdr_summary or "")
+    if "hlg" in h or "arib std-b67" in h or "arib-std-b67" in h or "std-b67" in h:
+        return "HLG"
+    if ("hdr10" in h or "2084" in h or "2086" in h
+            or re.search(r"\bpq\b", h)):
+        return "HDR10"
+    return "SDR"
 
 def score_for_tv(
     base_profile: str,
@@ -810,8 +922,11 @@ def score_for_tv(
             score = BRAVIA_8_II["dv_tv_score"].get("7-FEL", 22)
         else:
             score = BRAVIA_8_II["dv_tv_score"].get("7", 26)
+    elif base_profile in _NON_DV_PROFILES:
+        score = BRAVIA_8_II["dv_tv_score"][classify_non_dv_hdr(hdr_summary)]
     else:
-        score = BRAVIA_8_II["dv_tv_score"].get(base_profile) or 10
+        # Unknown DV profiles (9, 10, 20, ...) keep the flat default.
+        score = BRAVIA_8_II["dv_tv_score"].get(base_profile, 10)
 
     if bitrate_mbps > 70:    score += 18
     elif bitrate_mbps > 45:  score += 15
@@ -832,7 +947,7 @@ def score_for_tv(
 
     source_bonus = {
         "REMUX": 10, "UHD BluRay": 8, "Likely REMUX": 7,
-        "BluRay Encode": 5, "WEB-DL": 2,
+        "BluRay Encode": 5, "WEB-DL": 2, "WEBRip": 1,
     }
     score += source_bonus.get(source, 0)
     score = int(clamp(score, 0, 100))
@@ -855,6 +970,7 @@ def check_usb_compatibility(
     bit_depth: int | None,
     resolution: str,
     file_size_gb: float,
+    dv_profile: str = "None",
 ) -> dict[str, Any]:
     issues:   list[str] = []
     warnings: list[str] = []
@@ -873,7 +989,9 @@ def check_usb_compatibility(
     if bit_depth and bit_depth > BRAVIA_8_II["max_depth"]:
         issues.append(f"{bit_depth}-bit video exceeds the 10-bit USB maximum on this TV.")
 
-    if container_short == "MKV" and "dolby vision" in video_codec.lower():
+    # The video codec string never says "Dolby Vision", so key off the DV profile.
+    if container_short == "MKV" and (
+            dv_profile not in ("None", "", None) or "dolby vision" in video_codec.lower()):
         warnings.append(
             "DV in MKV can lose DV box atoms during playback — "
             "MP4 (via mp4muxer) is the safer container for Dolby Vision on this TV."
@@ -931,20 +1049,33 @@ def tv_compatibility_heuristic(
     codec_text  = lower_text(video_codec)
     container_fit = get_container_compatibility(container_short)
 
+    # `playable` (RB-2) is separate from `profile_supported` (which is about Dolby
+    # Vision): the file plays when the codec and container are modelled as
+    # supported by the TV's USB player. An "Unknown" container is not held against it.
+    codec_ok     = any(c in codec_text for c in BRAVIA_8_II["usb_video"])
+    container_ok = (container_short in BRAVIA_8_II["usb_containers"]
+                    or container_short in ("Unknown", ""))
+    playable = "Yes" if codec_ok and container_ok else "No"
+
     if "hevc" not in codec_text and "h.265" not in codec_text:
         return {
             "profile_supported": "No", "el_usable": "No",
             "container_compatibility": container_fit,
             "note": "Primary video is not HEVC, so DV playback is not a sensible target.",
+            "playable": playable,
         }
 
-    dv_entry     = BRAVIA_8_II["dv_support"].get(base_profile, ("Unknown", ""))
+    # A bare "8" (no compatibility id) is the generic Profile 8 entry (RB-19).
+    dv_key       = "8.x" if base_profile == "8" else base_profile
+    dv_entry     = BRAVIA_8_II["dv_support"].get(dv_key, ("Unknown", ""))
     profile_supported = dv_entry[0]
 
     # EL is never usable on this TV
     el_usable = "No"
 
     note = dv_entry[1] if len(dv_entry) > 1 else ""
+    if dv_key == "None":
+        note = "No Dolby Vision; plays as HDR10/HLG/SDR"
 
     if base_profile == "7" and el == "Yes":
         note += " EL present in file but not rendered by this TV."
@@ -964,6 +1095,7 @@ def tv_compatibility_heuristic(
         "el_usable":             el_usable,
         "container_compatibility": container_fit,
         "note":                  note,
+        "playable":              playable,
     }
 
 
@@ -1001,7 +1133,8 @@ def score_video(
     elif container_short == "MKV":  score += 3
     elif container_short in {"M2TS", "TS"}: score += 2
 
-    source_scores = {"REMUX": 10, "UHD BluRay": 8, "BluRay Encode": 5, "WEB-DL": 2}
+    source_scores = {"REMUX": 10, "UHD BluRay": 8, "BluRay Encode": 5, "WEB-DL": 2,
+                     "WEBRip": 1}
     score += source_scores.get(source, 0)
 
     if tv_support == "Yes":     score += 5
@@ -1026,6 +1159,7 @@ def score_confidence(
     dovi_scan: dict[str, Any],
     layer_variant: str,
     tv_support: str,
+    layer_reason: str = "",
 ) -> int:
     score = 35
     if mediainfo_data: score += 12
@@ -1039,7 +1173,12 @@ def score_confidence(
     elif status == "skipped":          score -= 8   # FIX: honest penalty for fast mode
     else:                              score -= 4
 
-    if layer_variant != "Single-layer" and "unknown" not in layer_variant.lower():
+    # A layer taken from the filename is unverified (RB-28): it earns no credit and
+    # counts like an unknown layer.
+    layer_unverified = layer_reason == FILENAME_HINT_REASON
+    if layer_unverified and layer_variant != "Single-layer":
+        score -= 2
+    elif layer_variant != "Single-layer" and "unknown" not in layer_variant.lower():
         score += 6
     elif "unknown" in layer_variant.lower():
         score -= 2
@@ -1131,6 +1270,15 @@ def parse_dovi_summary(output: str) -> dict[str, Any] | None:
             parsed[mapped_key] = int(number) if number is not None else text_value
         else:
             parsed[mapped_key] = text_value
+    # dovi_tool's exact "Profile:" format is unverified, so be tolerant: keep the
+    # verbatim text and add the bare number and the FEL/MEL suffix (RB-16).
+    profile_text = parsed.get("profile")
+    if isinstance(profile_text, str):
+        number = re.match(r"\d+(?:\.\d+)?", profile_text)
+        if number:
+            parsed["profile_number"] = number.group(0)
+        layer = re.search(r"\b(FEL|MEL)\b", profile_text, re.IGNORECASE)
+        parsed["layer"] = layer.group(1).upper() if layer else None
     return parsed or None
 
 
@@ -1233,8 +1381,13 @@ def inspect_dolby_vision(
         rpu = flag_text(side_data.get("rpu_present_flag"))
 
     dovi_summary = dovi_scan.get("summary", {})
+    dovi_layer = None
     if dovi_summary.get("profile"):
-        base_profile = normalize_text(dovi_summary["profile"])
+        # profile_number is the bare number ("7" from "7 (FEL)"); fall back to the
+        # verbatim text for summaries built without it.
+        base_profile = normalize_text(
+            dovi_summary.get("profile_number") or dovi_summary["profile"])
+        dovi_layer = dovi_summary.get("layer")
 
     profile_label = build_profile_label(base_profile, video_track, ffprobe_video)
     tool_names: list[str] = []
@@ -1244,7 +1397,7 @@ def inspect_dolby_vision(
         tool_names.extend(["ffmpeg", "dovi_tool"])
 
     layer_variant, layer_reason = detect_layer_variant(
-        filepath, base_profile, el, video_track, ffprobe_video
+        filepath, base_profile, el, video_track, ffprobe_video, layer=dovi_layer
     )
 
     return {
@@ -1379,7 +1532,8 @@ def build_recommendation(
     tv_support: dict[str, str], profile_label: str, layer_variant: str,
     container_short: str = "", audio_label: str = "",
 ) -> str:
-    if tv_support["profile_supported"] == "No":
+    # `playable` (RB-2) decides this; `profile_supported` is only about Dolby Vision.
+    if tv_support.get("playable", "Yes") == "No":
         return "Not a suitable playback target for this TV."
     recs = []
 
@@ -1388,10 +1542,10 @@ def build_recommendation(
             "⚙ Convert to P8.1: dovi_tool -m 2 convert --discard → mp4muxer. "
             "FEL is fully wasted on this TV."
         )
-    elif profile_label == "7" and "mel" in layer_variant.lower():
+    elif profile_label == "7" and layer_variant.lower().startswith("mel"):
         recs.append("⚙ Consider converting to P8.1 MP4 for guaranteed compatibility.")
 
-    if container_short == "MKV":
+    if container_short == "MKV" and profile_label not in ("", "None"):     # DV advice only for DV files
         recs.append("⚙ Remux to MP4 with mp4muxer for safer DV playback.")
 
     if "truehd" in audio_label.lower():
@@ -1411,10 +1565,22 @@ def build_recommendation(
     return " | ".join([base] + recs) if recs else base
 
 
+def _layer_note(layer_variant: str, layer_reason: str) -> str:
+    """One sentence about a FEL/MEL verdict that names where the verdict came from."""
+    kind = "FEL" if layer_variant.lower().startswith("fel") else "MEL"
+    if layer_reason == FILENAME_HINT_REASON:
+        return f"{kind} detected via filename hint."
+    if layer_reason.lower().startswith("dovi_tool"):
+        return f"{kind} confirmed by dovi_tool."
+    if layer_reason.lower().startswith("bitrate-ratio"):
+        return f"{kind} suggested by the bitrate-ratio heuristic."
+    return f"{kind} detected."
+
+
 def build_insights(
     profile: str, layer_variant: str, bitrate_mbps: float, source: str,
     audio_details: str, subtitle_count: int, tv_support_note: str,
-    dovi_scan: dict[str, Any], confidence: int,
+    dovi_scan: dict[str, Any], confidence: int, layer_reason: str = "",
 ) -> tuple[str, str]:
     notes: list[str] = []
     if profile.startswith("8"):   notes.append("Single-layer DV with HDR-compatible delivery.")
@@ -1422,8 +1588,7 @@ def build_insights(
     elif profile == "5":          notes.append("Streaming-first single-layer DV.")
     else:                         notes.append("No clear DV profile detected.")
 
-    if layer_variant.lower().startswith("fel"):         notes.append("FEL detected via filename hint.")
-    elif layer_variant.lower().startswith("mel"):       notes.append("MEL detected via filename hint.")
+    if layer_variant.lower().startswith(("fel", "mel")): notes.append(_layer_note(layer_variant, layer_reason))
     elif "dual-layer" in layer_variant.lower():         notes.append("Dual-layer DV present; FEL vs MEL unproven.")
 
     if bitrate_mbps >= 30:   notes.append("Good bitrate tier.")
@@ -1573,6 +1738,7 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
     audio_label, audio_details, audio_score = get_primary_audio_summary(
         mediainfo_audio_tracks, ffprobe_audio_streams
     )
+    audio_tracks = build_audio_tracks(mediainfo_audio_tracks, ffprobe_audio_streams)
     subtitle_count = len(get_ffprobe_streams(ffprobe_data, "subtitle"))
     source = guess_source(os.path.basename(filepath), bitrate_mbps,
                            dv_info["base_profile"], dv_info["el"])
@@ -1620,6 +1786,7 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
         bit_depth=bit_depth,
         resolution=resolution,
         file_size_gb=file_size_gb,
+        dv_profile=dv_info["profile"],
     )
 
     confidence_score = score_confidence(
@@ -1630,6 +1797,7 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
         dovi_scan=dovi_scan,
         layer_variant=dv_info["layer_variant"],
         tv_support=tv_support["profile_supported"],
+        layer_reason=dv_info["layer_reason"],
     )
 
     recommendation = build_recommendation(
@@ -1653,6 +1821,7 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
         tv_support_note=tv_support["note"],
         dovi_scan=dovi_scan,
         confidence=confidence_score,
+        layer_reason=dv_info["layer_reason"],
     )
 
     tv_playback = (
@@ -1691,6 +1860,11 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
         "audio":            audio_label,
         "audio_details":    audio_details,
         "audio_score":      audio_score,
+        # Every audio track (additive): verification checks Atmos / DTS:X claims
+        # against any track, not just the best-scoring summary line.
+        "audio_tracks":     audio_tracks,
+        "has_atmos":        any(t["atmos"] for t in audio_tracks),
+        "has_dtsx":         any(t["dtsx"] for t in audio_tracks),
         # Total audio bitrate (all tracks) — used by magnet.py to recompute
         # video bitrate accurately when it patches in the real file size.
         "audio_total_kbps": round(audio_total_kbps, 1),
@@ -1734,12 +1908,16 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
 
 # ── Folder scan ──────────────────────────────────────────────────────────────
 
-def scan_folder(folder: str, skip_dovi_scan: bool = False) -> list[dict[str, Any]]:
+def scan_folder(folder: str, skip_dovi_scan: bool = False,
+                file_filter: Optional[Callable[[str], bool]] = None) -> list[dict[str, Any]]:
+    """``file_filter`` (optional) vets every walked file: os.walk follows junctions."""
     file_paths: list[str] = []
     for root, _, files in os.walk(folder):
         for file_name in files:
             if file_name.lower().endswith(VIDEO_EXTENSIONS):
-                file_paths.append(os.path.join(root, file_name))
+                full = os.path.join(root, file_name)
+                if file_filter is None or file_filter(full):
+                    file_paths.append(full)
 
     if not file_paths:
         return []

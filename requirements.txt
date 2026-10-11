@@ -1,0 +1,13 @@
+# Backend runtime dependencies (exact pins; see docs/TESTING.md).
+#
+# NOT installable from PyPI / external tools that must be present separately:
+#   libtorrent      optional, only for the magnet features (/magnet/, /compare-magnets/)
+#   MediaInfo CLI   mediainfo on PATH
+#   ffmpeg/ffprobe  on PATH
+#   dovi_tool       optional, deeper Dolby Vision RPU parsing
+#   hdr10plus_tool  optional, HDR10+ detection
+fastapi==0.143.0
+starlette==1.7.0
+pydantic==2.14.0
+uvicorn==0.54.0
+python-multipart==0.0.32

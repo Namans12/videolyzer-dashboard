@@ -1,0 +1,22 @@
+{
+ "schema": "videosuite-compare/1",
+ "tool_version": "0.2.0",
+ "mode": "fast",
+ "estimate": {
+  "pairs": 1,
+  "minutes": 4
+ },
+ "shortlist": [
+  "clip_a_crf18.mkv",
+  "clip_b_crf34.mkv"
+ ],
+ "dropped": [],
+ "pairs": [
+  {
+   "a": "clip_a_crf18.mkv",
+   "b": "clip_b_crf34.mkv",
+   "report": "C:\\fixtures\\suite\\clip_a_crf18_vs_clip_b_crf34_fast_3e0d8f7455.json"
+  }
+ ],
+ "failed": 0
+}

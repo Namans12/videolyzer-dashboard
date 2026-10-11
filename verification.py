@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from analysis import get_container_short_name
+
 
 # ── Severity helpers ─────────────────────────────────────────────────────────
 
@@ -103,9 +105,23 @@ def _check_fake_hdr10_plus(analysis: dict[str, Any], intel: dict[str, Any]) -> l
 
 
 def _check_fake_atmos(analysis: dict[str, Any], intel: dict[str, Any]) -> list[dict[str, str]]:
-    """Filename says Atmos, but no JOC / object-audio signal in audio metadata."""
+    """Filename says Atmos, but no track carries JOC / object-audio metadata.
+
+    When the record has ``audio_tracks`` (built by ``analysis.build_audio_tracks``)
+    ANY track may satisfy the claim. Records without it (old stored results,
+    magnet records built before that key existed) use the summary-string check.
+    """
     flags: list[dict[str, str]] = []
     if not intel.get("atmos"):
+        return flags
+    tracks = analysis.get("audio_tracks")
+    if isinstance(tracks, list):
+        if not any(t.get("atmos") for t in tracks if isinstance(t, dict)):
+            flags.append(_flag(
+                "fake_atmos", "warn",
+                "Filename claims Atmos but no audio track carries JOC / object-audio metadata.",
+                f"audio_tracks={len(tracks)}, audio='{analysis.get('audio_details')}'",
+            ))
         return flags
     audio = (analysis.get("audio_details") or "").lower()
     audio_label = (analysis.get("audio") or "").lower()
@@ -124,9 +140,21 @@ def _check_fake_atmos(analysis: dict[str, Any], intel: dict[str, Any]) -> list[d
 
 
 def _check_fake_dts_x(analysis: dict[str, Any], intel: dict[str, Any]) -> list[dict[str, str]]:
-    """Filename says DTS:X, but no DTS:X / XLL X marker in audio metadata."""
+    """Filename says DTS:X, but no track carries a DTS:X / XLL X marker.
+
+    Same any-track rule and string fallback as ``_check_fake_atmos``.
+    """
     flags: list[dict[str, str]] = []
     if not intel.get("dts_x"):
+        return flags
+    tracks = analysis.get("audio_tracks")
+    if isinstance(tracks, list):
+        if not any(t.get("dtsx") for t in tracks if isinstance(t, dict)):
+            flags.append(_flag(
+                "fake_dts_x", "warn",
+                "Filename claims DTS:X but no audio track carries a DTS:X object marker.",
+                f"audio_tracks={len(tracks)}, audio='{analysis.get('audio_details')}'",
+            ))
         return flags
     audio = (analysis.get("audio_details") or "").lower()
     audio_label = (analysis.get("audio") or "").lower()
@@ -210,9 +238,11 @@ def _check_container_mismatch(analysis: dict[str, Any], intel: dict[str, Any]) -
             break
     if not claimed or not actual:
         return flags
-    short_map = {"MKV": "MATROSKA", "MP4": "MP4", "M2TS": "BDAV", "TS": "MPEG-TS"}
-    actual_norm = short_map.get(claimed, claimed)
-    if actual_norm.lower() not in actual.lower():
+    # Compare normalised short names (MediaInfo says "MPEG-4" / "QuickTime / MOV"
+    # for an .mp4, "Matroska" for .mkv, "BDAV" for .m2ts ...). An unrecognised
+    # container name is not evidence of a mismatch.
+    actual_short = get_container_short_name(actual)
+    if actual_short != "Unknown" and actual_short.upper() != claimed:
         flags.append(_flag(
             "container_mismatch", "info",
             f"Filename suggests {claimed}, MediaInfo reports '{actual}'.",
@@ -234,20 +264,28 @@ def _check_resolution_mismatch(analysis: dict[str, Any], intel: dict[str, Any]) 
     if not actual_res or "x" not in actual_res:
         return flags
     try:
-        _, h = actual_res.split("x", 1)
-        h = int(h)
+        w_text, h_text = actual_res.split("x", 1)
+        w, h = int(w_text), int(h_text)
     except ValueError:
         return flags
     expected_h = {"2160p": 2160, "1440p": 1440, "1080p": 1080, "720p": 720,
                   "576p": 576, "480p": 480}.get(claimed)
     if expected_h is None:
         return flags
-    # Allow ±200 (anamorphic crop, e.g. 2160→1648 letterboxed)
-    if abs(h - expected_h) > 200 and h < expected_h - 200:
+    # Width rules for the tiers scope (2.40:1) crops make unreliable by height:
+    # 3840x1600 is a genuine 2160p. Either dimension reaching the threshold passes.
+    width_rules = {"2160p": (3600, 1960), "1080p": (1800, 900), "720p": (1200, 600)}
+    if claimed in width_rules:
+        min_w, min_h = width_rules[claimed]
+        ok = w >= min_w or h >= min_h
+    else:
+        # Allow ±200 (anamorphic crop) for the remaining tiers.
+        ok = not (abs(h - expected_h) > 200 and h < expected_h - 200)
+    if not ok:
         flags.append(_flag(
             "resolution_mismatch", "warn",
             f"Filename claims {claimed} but stream is {actual_res}.",
-            f"claimed_h={expected_h}, actual_h={h}",
+            f"claimed_h={expected_h}, actual={w}x{h}",
         ))
     return flags
 

@@ -25,7 +25,7 @@ def analyze_path_and_stream(path, fast=False, stream_seconds=10):
         print('No job_id returned (synchronous results).')
         return
 
-    prog_url = f'http://127.0.0.1:8000/progress/{job_id}'
+    prog_url = f'http://127.0.0.1:8000/job/{job_id}/events'
     print('Streaming SSE from', prog_url)
     try:
         # open and stream lines for roughly stream_seconds
@@ -74,7 +74,7 @@ def post_file_and_stream(file_path, fast=False, stream_seconds=10):
     if not job_id:
         print('No job_id returned from upload (server may have processed synchronously).')
         return
-    prog_url = f'http://127.0.0.1:8000/progress/{job_id}'
+    prog_url = f'http://127.0.0.1:8000/job/{job_id}/events'
     print('Streaming SSE for upload from', prog_url)
     try:
         r = requests.get(prog_url, stream=True, timeout=stream_seconds+5)
