@@ -20,39 +20,39 @@ def tv(base, hdr="", **kw):
 
 def test_non_dv_provisional_base_scores_exist():
     t = analysis.BRAVIA_8_II["dv_tv_score"]
-    assert (t["HDR10"], t["HLG"], t["SDR"]) == (28, 24, 12)
+    assert (t["HDR10"], t["HLG"], t["SDR"]) == (26, 22, 10)
 
 
 def test_reproduction_input_exact_tv_score():
     # Reproduction input of the review: MP4, 20.5 Mbps, 10-bit, audio score 10
     # (DD+), WEB-DL, HDR10 HEVC, no Dolby Vision (base_profile "None").
-    # Components: HDR10 base 28
+    # Components: HDR10 base 26
     #   + bitrate 20.5 Mbps (> 20)        +7
     #   + 10-bit                          +10
     #   + audio min(10, 10)               +10
     #   + MP4 container                   +6
     #   + WEB-DL source                   +2
-    #   = 63   (it was 45 before the fix: the 0-valued "None" key fell to 10)
-    assert tv("None", "SMPTE ST 2086, HDR10 compatible") == (63, "Good")
+    #   = 61   (it was 45 before the fix: the 0-valued "None" key fell to 10)
+    assert tv("None", "SMPTE ST 2086, HDR10 compatible") == (61, "Good")
 
 
 @pytest.mark.parametrize("hdr,expected", [
-    ("HDR10", 63),
-    ("SMPTE ST 2086, HDR10 compatible", 63),
-    ("PQ | BT.2020", 63),
-    ("smpte2084 | bt2020", 63),          # ffprobe color_transfer
-    ("HLG", 59),                          # 24 + 35
-    ("arib-std-b67 | bt2020", 59),        # ffprobe color_transfer
-    ("ARIB STD-B67", 59),
-    ("", 47),                             # SDR: 12 + 35
-    ("bt709 | bt709", 47),
+    ("HDR10", 61),
+    ("SMPTE ST 2086, HDR10 compatible", 61),
+    ("PQ | BT.2020", 61),
+    ("smpte2084 | bt2020", 61),          # ffprobe color_transfer
+    ("HLG", 57),                          # 22 + 35
+    ("arib-std-b67 | bt2020", 57),        # ffprobe color_transfer
+    ("ARIB STD-B67", 57),
+    ("", 45),                             # SDR: 10 + 35
+    ("bt709 | bt709", 45),
 ])
 def test_non_dv_classified_from_hdr_summary(hdr, expected):
     assert tv("None", hdr)[0] == expected
 
 
 def test_hdr10_plus_is_classified_hdr10_not_sdr():
-    assert tv("None", "SMPTE ST 2094 App 4, Version 1, HDR10+ Profile B compatible")[0] == 63
+    assert tv("None", "SMPTE ST 2094 App 4, Version 1, HDR10+ Profile B compatible")[0] == 61
 
 
 @pytest.mark.parametrize("profile", ["9", "10", "20"])
@@ -132,3 +132,21 @@ def test_dtsx_stays_at_dts_value_and_others_unchanged():
         analysis.get_audio_quality_score("DTS", "DTS 5.1") == 6
     assert analysis.get_audio_quality_score("AC-3", "Dolby Digital") == 5
     assert analysis.get_audio_quality_score("TrueHD", "TrueHD Atmos") == 5
+
+
+# --- real-magnet finding: File Size fact must show the torrent file, not the partial slice ----
+def _media_facts(**kw):
+    return analysis.build_media_facts(
+        {"FileSize": "33554432"}, None, None, None,
+        "Dolby Digital Plus, 5.1", 0, 10, "MKV",
+        {"container_compatibility": "Good"}, **kw)
+
+
+def _file_size(facts):
+    return next(f["value"] for f in facts if f["label"] == "File Size")
+
+
+def test_media_facts_file_size_uses_override_for_partial_files():
+    # a magnet job probes a 32 MiB head slice of a 27.16 GB file
+    assert _file_size(_media_facts()) == "0.03 GB"
+    assert _file_size(_media_facts(size_override_bytes=27_162_894_845)) == "27.16 GB"

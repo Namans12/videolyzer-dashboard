@@ -43,7 +43,7 @@ BRAVIA_8_II: dict[str, Any] = {
         "4": 15, "None": 0,
         # Non-DV base scores (RB-1). PROVISIONAL and owner-tunable: score_for_tv
         # classifies a file without Dolby Vision as HDR10 / HLG / SDR.
-        "HDR10": 28, "HLG": 24, "SDR": 12,
+        "HDR10": 26, "HLG": 22, "SDR": 10,
     },
     "usb_containers": {"MKV", "MP4", "TS", "M2TS"},
     "usb_video":      {"hevc", "h.265", "h265", "avc", "h.264", "h264", "vp9", "av1"},
@@ -1438,7 +1438,16 @@ def build_media_facts(
     ffprobe_data: dict[str, Any] | None, ffprobe_video: dict[str, Any] | None,
     audio_details: str, subtitle_count: int, bit_depth: int | None,
     container_short: str, tv_support: dict[str, str],
+    size_override_bytes: int | None = None,
 ) -> list[dict[str, str]]:
+    # A magnet job probes a partial head slice; the real file size comes from the torrent.
+    if size_override_bytes and size_override_bytes > 0:
+        size_text = format_size_gb(size_override_bytes)
+    else:
+        size_text = format_size_gb(
+            general_track.get("FileSize") if general_track
+            else ffprobe_data.get("format", {}).get("size", "") if ffprobe_data else ""
+        )
     return [
         {"label": "Container",        "value": get_container_name(general_track, ffprobe_data)},
         {"label": "Container Fit",    "value": tv_support["container_compatibility"]},
@@ -1454,10 +1463,7 @@ def build_media_facts(
         {"label": "Audio",            "value": audio_details},
         {"label": "Subtitles",        "value": str(subtitle_count)},
         {"label": "Runtime",          "value": f"{format_number(get_duration_minutes(general_track, ffprobe_data), 1)} min"},
-        {"label": "File Size",        "value": format_size_gb(
-            general_track.get("FileSize") if general_track
-            else ffprobe_data.get("format", {}).get("size", "") if ffprobe_data else ""
-        )},
+        {"label": "File Size",        "value": size_text},
     ]
 
 
@@ -1897,6 +1903,7 @@ def _analyze_file_inner(filepath: str, skip_dovi_scan: bool = False,
         "media_facts":      build_media_facts(
             general_track, video_track, ffprobe_data, ffprobe_video,
             audio_details, subtitle_count, bit_depth, container_short, tv_support,
+            size_override_bytes=size_override_bytes,
         ),
         "tool_reports":     build_tool_reports(
             mediainfo_data, general_track, video_track,
