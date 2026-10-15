@@ -24,6 +24,7 @@ FRAMEWORK_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 KNOWN_ENV_VARS = {
     "VIDEOSUITE_PYTHON", "VIDEOSUITE_ROOT", "VIDEOSUITE_COMPARE_TIMEOUT_S",
     "VIDEOLYZER_ALLOWED_ROOTS", "VIDEOLYZER_ALLOW_REMOTE_DRIVES",
+    "VIDEOLYZER_SUITE_STARTUP_CHECK",
 }
 
 
@@ -114,3 +115,18 @@ def test_every_environment_variable_read_is_documented_in_the_readme():
     missing = sorted(name for name in env_vars_read()
                      if not re.search(rf"(?<![A-Za-z0-9_]){re.escape(name)}(?![A-Za-z0-9_])", README))
     assert not missing, f"environment variables missing from README.md: {missing}"
+
+
+def test_readme_marks_dashboard_scoring_as_frozen_legacy():
+    heading = "## Legacy scoring (frozen)"
+    assert heading in README
+    section = README.split(heading, 1)[1].split("\n## ", 1)[0]
+    for field in ("tv_score", "composite_score", "confidence_score"):
+        assert field in section
+
+
+def test_every_suite_route_is_mentioned_in_the_integration_contract():
+    contract = (ROOT / "docs" / "SUITE_INTEGRATION.md").read_text(encoding="utf-8")
+    missing = sorted(path for path in own_route_paths() if path.startswith("/suite/")
+                     and not re.search(re.escape(path) + r"(?![\w{}/-])", contract))
+    assert not missing, f"routes missing from docs/SUITE_INTEGRATION.md: {missing}"

@@ -873,6 +873,13 @@ if release.audio_atmos:
 
 ## Important
 
+- Dashboard scoring is frozen legacy: do not tune `BRAVIA_8_II`/`score_for_tv`/`composite_score`.
+  The 2026-10-11 bases are HDR10 26 / HLG 22 / SDR 10; Plan 3 retires this model.
+  Use VideoSuite results (`suite` on magnet analyses and `/suite/...`) for device-aware answers.
+- Never start the backend with `--reload` for real use. `npm run dev:stack` and
+  `scripts\start-local.ps1` default to no reload; `-Dev` is development only.
+  Use `-BindHost` (`-Host` is a compatibility alias), and `-Python` if needed.
+
 Claude Code should:
 
 * implement incrementally

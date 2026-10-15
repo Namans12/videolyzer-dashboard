@@ -1,11 +1,12 @@
 # VideoSuite integration
 
 The Dashboard runs the installed VideoSuite (the Video Comparizer's `videosuite` package) as a
-subprocess and exposes it through four `/suite/...` routes. This page is the contract: what is
+subprocess and exposes it through five `/suite/...` routes. This page is the contract: what is
 run, what comes back, how failures are named. The code is `suite_client.py` (process and
 document handling) and `suite_routes.py` (HTTP, guards, jobs). Examples below are taken from the
-real fixtures in `tests/fixtures/suite/` (output of the CLI, tool_version `0.2.0`, run on three
-generated 1-second clips; paths shortened).
+real fixtures in `tests/fixtures/suite/` (output of the CLI, tool_version `0.4.0`, run on three
+generated 10-second clips; paths shortened). JSON examples are abbreviated key layouts;
+the fixtures are authoritative for full current documents. Additive keys retain schema `/1`.
 
 ## 1. Principles
 
@@ -29,14 +30,67 @@ Nothing found, a Python that does not exist, or a root folder that does not exis
 
 | Command | Arguments the client builds | Required document keys | Time limit |
 | --- | --- | --- | --- |
+| `version` | `version --json` | `capabilities` (list), `schemas` (object), `facts_version` (int) | 30 s |
 | `devices` | `devices --json` | `devices` (list) | 30 s |
 | `facts` (client only, no route) | `facts --list F --json [--deep-dv]` | `records` (list) | 60 s + 45 s per file (+ 900 s per file with deep DV) |
 | `score` | `score --list F --json --device= --player= [--fs=] --lang= [--deep-dv]` | `records` (list) | 60 s + 45 s per file (+ 900 s per file with `deep_dv`) |
 | `rank` | `rank --list F --json --device= --player= [--fs=] --lang= --reports=DIR --wq= --wp=` | `quality`, `same_picture_groups`, `not_compared`, `missing_pairs` (lists), `weights`, `devices` (objects) | as `score` |
-| `compare` | `compare --list F --json --device= --player= [--fs=] --lang= --out=DIR --mode= --top=N` | `mode` (`fast`/`accurate`), `estimate` (object), `shortlist`, `dropped`, `pairs` (lists of objects), `failed` (int >= 0) | 6 h, or `VIDEOSUITE_COMPARE_TIMEOUT_S` seconds |
+| `compare` | `compare --list F --json --device= --player= [--fs=] --lang= --out=DIR --mode= --top=N` | `mode` (`fast`/`accurate`), `estimate` (object), `shortlist`, `dropped`, `pairs` (lists of objects), `failed` (int >= 0) | pair-scaled formula below, or exact positive `VIDEOSUITE_COMPARE_TIMEOUT_S` |
+
+`score_partial()` is a client method, not another HTTP route or schema. It builds
+`score --list F --json --real-size=N --real-name=NAME --coverage=head|head_tail`
+for one file, without deep DV; timeout 105 s and a collective 5 s cleanup budget.
+The client accepts an integer size from 1 to `2**50`; the CLI additionally requires
+it to be at least as large as the probe on disk. The
+name must be a basename, at most 255 characters, without controls or separators.
+Partial source keys are `partial`, `real_name`, `probed_bytes`, `caveats`,
+alongside `path`, `magnet`, `probe_coverage` (`head`/`head_tail`). The original
+size is used in `container.size_bytes`.
+Partial records are not cached; `--deep-dv` is refused for partial CLI inputs.
+
+Unset/invalid compare timeout: `max(21600, pairs * per_pair_budget + 600)` s,
+`n = min(len(paths), 2 * top)`, `pairs = n * (n - 1) / 2`; per-pair budget
+1800 s (`fast`) or 9000 s (`accurate`). A valid positive environment override is used exactly.
 
 Every document is one JSON object `{"schema": "videosuite-<command>/1", "tool_version": "<text>", ...}`.
 A document is rejected (`contract`) when stdout is empty, larger than 20 MB, not UTF-8, not valid JSON (the constants `NaN`/`Infinity` count as invalid), not an object, has another `schema` (for example `videosuite-score/9`), has no string `tool_version`, or lacks a required key of the right type. A `devices` entry also needs a string `id` and a `players` list of objects with string `id`.
+
+Deep validation checks consumer fields while accepting unknown additive fields:
+
+- `version`: string capabilities, nullable string `engine_tag` when present.
+- `facts`/`score`: record string `id`, object `source` with string `path`, boolean
+  `source.partial` when present. `score` requires a playback object; each row has
+  a known verdict (`PLAYS_WELL`, `PLAYS_DEGRADED`, `RISKY`, `WONT_PLAY`), numeric
+  score, two numeric score-range values, string evidence/effective HDR, nullable
+  string effective audio, issue objects with string severity/message, string hints.
+  Optional `best_player` is an object whose values have string player/reason.
+- `rank`: quality rows have string id/label, integer rank/games and nullable numeric
+  quality score. Device blocks have ranking/will-not-play/not-compared lists and
+  nullable crossing note. Ranking rows have string label, integer device rank,
+  known verdict, numeric playback score, nullable numeric quality score, nullable
+  string why, string reasons. Optional stale/legacy reports and head-to-head conflicts are lists.
+- `devices`: string device id/label, player objects with string id/label, boolean
+  default, object rule counts with string keys and integer values.
+- `compare`: known mode, nonnegative integer failed count, object pairs.
+
+Numeric and integer consumer fields reject booleans. The handshake additionally
+checks `schemas` has string keys/values and nullable string version/engine tag.
+
+The 0.4.0 additive contract includes playback `effective_hdr_class` (the class
+actually displayed), `usb_filesystem`, `usb_filesystem_source`, `audio_output`,
+and record `best_player` recommendations by device. `rank` keeps top-level
+`quality` device-neutral; device blocks have `quality_basis`,
+`format_credit_removed`, and rows with `neutral_quality_score`/
+`neutral_quality_rank` beside the device-adjusted `quality_score`. Top-level
+`head_to_head_conflicts` exposes a ranking reversal when a third file changes
+the set mean. `stale_reports` and `legacy_reports` identify report provenance.
+`settings` metadata includes path, loaded, errors and applied_count; bad settings
+produce warnings and `settings.errors`, preserving CLI exit codes.
+
+The `videosuite-version/1` document includes `tool_version: "0.4.0"`, `schemas`,
+`facts_version`, `engine_tag`, `engine_files`, `rules_versions`, `python`,
+`capabilities`, `settings`. Capabilities are `devices`, `version`, `device_quality`,
+`best_player`, `guards`, `settings`, `score_partial`, `pair_progress`.
 
 ### Exit codes
 
@@ -79,16 +133,36 @@ All routes sit behind the request guard (Host/Origin/Sec-Fetch-Site rules); the 
 | `mode` | `compare`: `fast` or `accurate` (required) |
 | `top` | `compare`: integer 1 to 6; omitted = 4 |
 
-Status codes of the three job routes: **200** `{"job_id": "<hex>"}`; **400** path guard (empty, NUL, UNC and device paths, relative paths, alternate data streams, folders where files are required, non-video files, network drives) and shell characters in a folder value; **403** a path outside `VIDEOLYZER_ALLOWED_ROOTS`; **404** a path that does not exist (for `out_dir`: whose parent does not exist); **409** `{"detail": "a comparison is already running"}` or `{"detail": "too many suite jobs are running"}`; **415** not JSON; **422** a body or value rule above; **503** the suite is not installed. The path guard messages are fixed strings: no exception text and no foreign path is ever echoed.
+Status codes of the three job routes: **200** `{"job_id": "<hex>"}`; **400** path guard (empty, NUL, UNC and device paths, relative paths, alternate data streams, folders where files are required, non-video files, network drives) and shell characters in a folder value; **403** a path outside `VIDEOLYZER_ALLOWED_ROOTS`; **404** a path that does not exist (for `out_dir`: whose parent does not exist); **409** `{"detail": "a comparison is already running"}`, `{"detail": "too many suite jobs are running"}` or, when a heavy job (a comparison or a deep Dolby Vision score) is running and another one is requested, `{"detail": "a comparison is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time"}` (the first words are `a deep Dolby Vision scan is already running` when that is the running one); **415** not JSON; **422** a body or value rule above; **503** the suite is not installed. The path guard messages are fixed strings: no exception text and no foreign path is ever echoed.
+
+### `GET /suite/version`
+
+Always HTTP 200: `status`, `tool_version`, `minimum` (`0.3.0`), `capabilities`,
+`schemas`, `engine_tag`, `message`, `checked_at`. Statuses: `ok`, `too_old`,
+`unavailable`, `error`, `unchecked` (client without `version`). `?refresh=true`
+forces a check. `ok`/`too_old` cache for 300 s; every failure/unchecked result
+for 10 s, serialized under one lock. Startup checks run in a daemon thread unless
+`VIDEOLYZER_SUITE_STARTUP_CHECK=0` (default `1`). Version comparison is numeric
+and accepts development suffixes. The reinstall hint is
+`Reinstall the Comparizer (run the latest Video Comparator installer), then restart the Dashboard.`
+A 0.3.0 suite without `version` is detected through `devices`, with capabilities
+`["devices"]`, empty schemas and null engine tag. Its magnet files report
+`The installed VideoSuite cannot score partial downloads (needs 0.4.0 or later); reinstall the Comparizer.`
 
 ### `GET /suite/devices`
 
-Returns the CLI document as it is, cached for 60 seconds (errors are never cached). Requires videosuite 0.3.0 or later (the `devices` command arrived with it). Errors: 503 (`unavailable`), 504 (`timeout`), 502 (`contract` or any other failure); the body is always a fixed `{"detail": ...}`, never stderr text. When the CLI answers with the usage exit code 2 (an installed suite older than 0.3.0 does not know `devices`) the status stays 502 and the detail is `VideoSuite does not support 'devices'; reinstall the Comparizer (videosuite 0.3.0 or later)`; the other 502 details are `VideoSuite returned an unusable response.` (`contract`) and `VideoSuite failed.`.
+Returns the CLI document as it is, cached for 60 seconds (errors are never cached).
+Requires videosuite 0.3.0 or later. The handshake runs first; `too_old` returns
+502 with its version/reinstall message. Otherwise errors are 503 (`unavailable`),
+504 (`timeout`), 502 (`contract` or other failure), with fixed detail and no stderr.
+A subsequent `devices` usage exit 2 returns the compatibility message
+`VideoSuite does not support 'devices'; reinstall the Comparizer (videosuite 0.3.0 or later)`.
+Other 502 details: `VideoSuite returned an unusable response.` (`contract`) or `VideoSuite failed.`.
 
 ```json
 {
  "schema": "videosuite-devices/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "devices": [
   {
    "id": "sony_bravia_8_ii",
@@ -120,7 +194,7 @@ The finished job holds the CLI document in `results` (an object, not a list, for
 ```json
 {
  "schema": "videosuite-score/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "records": [
   {
    "schema": "media-record/1",
@@ -160,7 +234,7 @@ The finished job holds the CLI document in `results` (an object, not a list, for
 ```json
 {
  "schema": "videosuite-rank/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "quality": [
   {"id": "ef7e05bf...", "games": 1, "margin": 0.124002, "quality_score": 55.5067, "rank": 1, "label": "clip_a_crf18.mkv"},
   {"id": "95fb25df...", "games": 1, "margin": -0.124002, "quality_score": 44.4933, "rank": 2, "label": "clip_b_crf34.mkv"},
@@ -191,7 +265,7 @@ The pixel comparison runs for minutes to hours. The job's `current` shows the la
 ```json
 {
  "schema": "videosuite-compare/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "mode": "fast",
  "estimate": {"pairs": 1, "minutes": 4},
  "shortlist": ["clip_a_crf18.mkv", "clip_b_crf34.mkv"],
@@ -209,7 +283,7 @@ Done:
 
 ```json
 {"kind": "suite_score", "status": "done", "progress": "1/1", "current": "", "total": 2,
- "results": {"schema": "videosuite-score/1", "tool_version": "0.2.0", "records": ["..."]},
+ "results": {"schema": "videosuite-score/1", "tool_version": "0.4.0", "records": ["..."]},
  "error": null, "error_kind": null,
  "events": [{"msg": "Scoring 2 file(s)", "ts": 1760000000.0}, {"msg": "Done.", "ts": 1760000003.0}]}
 ```
@@ -231,10 +305,39 @@ Error (`results` stays the empty list; a `compare` with `failed > 0` keeps the d
 
 ## 6. Concurrency
 
-One `suite_compare` at a time and at most two `suite_score`/`suite_rank` jobs at once, process-wide. The route takes the slot atomically and hands it to the runner; the runner releases it in `finally` whatever happens. A route call over the limit answers 409 and creates no job.
+One heavy job (`suite_compare` or `suite_score` with `deep_dv: true`) at a time,
+and at most two score/rank jobs, process-wide. Slots are taken atomically and
+released in `finally`; rejection creates no job. Capacity has precedence:
+409 `too many suite jobs are running`. Two compares get 409
+`a comparison is already running`. Other heavy conflicts name the active job:
+`a comparison is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`
+or `a deep Dolby Vision scan is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`.
+
+Magnets are not heavy. `magnet_suite.py` scores at most 8 retained probes
+sequentially alongside a heavy job. The torrent is paused first. Its 300 s clock
+starts before client construction/version check; a last 105 s call plus one
+collective 5 s cleanup deadline (tree killer, direct kill, wait, reader joins,
+pipe closes) gives 300 + 105 + 5 = 410 s < the 420 s ceiling. Each analysis has
+`suite.status` `ok` (record/best_player/version/partial), `unavailable` (missing
+suite/capability), `error` (kind/message) or `skipped` (limit/budget/cancel);
+suite failure never makes the magnet job fail.
+
+## Process lifetime
+
+`proc_guard.py` assigns each real Windows child immediately after `Popen` to a
+kill-on-close Job Object (the primary guarantee). Fake processes are never
+assigned. Backend shutdown also calls `kill_live_processes()` for registered
+children (the fallback). `scripts/start-local.ps1` starts uvicorn with
+`--timeout-graceful-shutdown 3`, so one Ctrl+C reaches that cleanup after at
+most 3 s even while a suite job runs; without the flag uvicorn waits for running
+jobs without limit and a second Ctrl+C skips the cleanup. Job Object API/nested
+job failure is logged, nonfatal, and leaves only the shutdown cleanup; crash cleanup
+is best effort in that case. Under thread exhaustion, injected killers must
+return promptly when run inline. With failed termination and no available cleanup
+thread, an active daemon reader's pipe may remain pending EOF/garbage collection.
 
 ## 7. Testing
 
 - `tests/test_suite_client.py` and `tests/test_suite_routes.py` use fake processes and the fixtures; no real subprocess, no taskkill.
-- `tests/test_live_suite.py` (opt-in, `VIDEOLYZER_LIVE_SUITE=1`) runs the real `devices` and a real `score` on one generated clip; see `docs/TESTING.md`.
-- Refreshing the fixtures: run the CLI by hand with `--json` (and `--cache-dir` pointing to a temporary folder) on generated clips and store the stdout bytes unchanged; replace the temporary path in `score.json`/`compare.json` by `C:\fixtures\suite`. `devices.json` is a plain `python -m videosuite devices --json`.
+- `tests/test_live_suite.py` (opt-in, `VIDEOLYZER_LIVE_SUITE=1`) runs real `devices`, `version`, `score` and `score_partial` on generated clips; see `docs/TESTING.md`.
+- Regenerate with `.\.venv\Scripts\python.exe scripts/make_suite_fixtures.py`; the script isolates settings/cache and normalizes paths in generated 0.4.0 fixtures. See `docs/TESTING.md` for configuration.

@@ -60,6 +60,108 @@ class FakeClient:
         return self._go("compare", args, kwargs)
 
 
+class VersionFakeClient(FakeClient):
+    def version(self):
+        return self._go("version", (), {})
+
+
+@pytest.mark.parametrize("value,status", [("0.4.0", "ok"), ("0.2.9", "too_old"),
+                                          (SuiteUnavailable("secret"), "unavailable")])
+def test_version_route_returns_200_and_refreshes(client, value, status):
+    import suite_version
+    f = VersionFakeClient(version=value if isinstance(value, Exception) else
+                          dict(fixture_doc("version.json"), tool_version=value))
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    response = client.get("/suite/version")
+    assert response.status_code == 200
+    assert response.json()["status"] == status
+    assert client.get("/suite/version").json() == response.json()
+    assert len(f.calls) == 1
+    assert client.get("/suite/version?refresh=true").status_code == 200
+    assert len(f.calls) == 2
+    assert suite_version.cached()["status"] == status
+
+
+def test_version_route_factory_unavailable_is_cached_with_short_ttl(client, monkeypatch):
+    import suite_version
+    now = [0.0]
+    monkeypatch.setattr(suite_version, "_now", lambda: now[0])
+    calls = []
+    def factory():
+        calls.append(True)
+        raise SuiteUnavailable("secret")
+    main.app.dependency_overrides[get_suite_client] = factory
+    response = client.get("/suite/version")
+    assert response.status_code == 200
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["message"] == UNAVAILABLE
+    assert suite_version.cached() == response.json()
+    now[0] = 5
+    assert client.get("/suite/version").json() == response.json()
+    now[0] = 11
+    assert client.get("/suite/version").json()["checked_at"] == 11
+    assert client.get("/suite/version?refresh=true").status_code == 200
+    assert suite_version.cached()["checked_at"] == 11
+
+
+def test_devices_version_gate_returns_reinstall_message(client):
+    f = VersionFakeClient(version=dict(fixture_doc("version.json"), tool_version="0.2.9"))
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    response = client.get("/suite/devices")
+    assert response.status_code == 502
+    assert response.json() == {"detail": "The installed VideoSuite is 0.2.9; the Dashboard needs 0.3.0 "
+                              "or later. Reinstall the Comparizer (run the latest Video Comparator "
+                              "installer), then restart the Dashboard."}
+    assert [call[0] for call in f.calls] == ["version"]
+
+
+@pytest.mark.parametrize("exc,kind", [(RuntimeError("secret"), "internal"),
+                                     (SuiteError("contract", "secret"), "contract"),
+                                     (SuiteError("usage", "secret"), "usage"),
+                                     (SuiteError("unavailable", "secret"), "unavailable")])
+def test_version_discovery_errors_are_safe_and_short_cached(client, monkeypatch, exc, kind):
+    import suite_version
+    now = [0.0]
+    monkeypatch.setattr(suite_version, "_now", lambda: now[0])
+    def factory():
+        raise exc
+    main.app.dependency_overrides[get_suite_client] = factory
+    response = client.get("/suite/version")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == ("unavailable" if kind == "unavailable" else "error")
+    assert result["message"] == (UNAVAILABLE if kind == "unavailable" else
+                                  f"VideoSuite did not answer the version check ({kind}).")
+    assert suite_version.cached() == result
+    now[0] = 5
+    assert client.get("/suite/version").json() == result
+    now[0] = 11
+    assert client.get("/suite/version").json()["checked_at"] == 11
+
+
+@pytest.mark.parametrize("field,value", [("tool_version", object()), ("capabilities", object()),
+                                        ("capabilities", [object()]), ("capabilities", None),
+                                        ("schemas", {"x": object()}), ("schemas", None),
+                                        ("engine_tag", object())])
+def test_version_malformed_metadata_never_causes_http_500(client, field, value):
+    doc = fixture_doc("version.json")
+    doc[field] = value
+    main.app.dependency_overrides[get_suite_client] = lambda: VersionFakeClient(version=doc)
+    response = client.get("/suite/version")
+    assert response.status_code == 200
+    assert response.json()["status"] == "error"
+    assert response.json()["message"] == "VideoSuite did not answer the version check (contract)."
+
+
+@pytest.mark.parametrize("value", ["0.4.0", SuiteUnavailable("missing"), "v1"])
+def test_devices_other_version_statuses_keep_working(client, value):
+    f = VersionFakeClient(version=value if isinstance(value, Exception) else
+                          dict(fixture_doc("version.json"), tool_version=value))
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    assert client.get("/suite/devices").json() == fixture_doc("devices.json")
+    assert [call[0] for call in f.calls] == ["version", "devices"]
+
+
 @pytest.fixture
 def fake(client):
     """A FakeClient wired in as the suite client; the override is removed afterwards."""
@@ -598,6 +700,88 @@ def test_second_compare_while_one_runs_is_409_and_the_slot_is_freed_afterwards(c
     assert jobs_module.jobs.get(job1)["status"] == "done"
     r = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "o3"), "mode": "fast"})
     assert r.status_code == 200
+
+
+@pytest.mark.parametrize("holder", ["compare", "deep_dv"])
+def test_d4_heavy_jobs_cross_block_but_allow_ordinary_score(client, fake, videos, tmp_path, holder):
+    blocker = BlockingClient("compare.json" if holder == "compare" else "score.json")
+    job_id = jobs_module.jobs.create("suite_compare" if holder == "compare" else "suite_score")
+    if holder == "compare":
+        thread = start_in_thread(suite_routes.run_compare_job, job_id, blocker, videos, str(tmp_path / "o"))
+    else:
+        thread = start_in_thread(suite_routes.run_score_job, job_id, blocker, videos, deep_dv=True)
+    try:
+        assert blocker.started.wait(5)
+        detail = ("a comparison is already running" if holder == "compare" else
+                  "a deep Dolby Vision scan is already running") + (
+                  "; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time")
+        if holder == "deep_dv":
+            response = client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "out"), "mode": "fast"})
+            assert response.status_code == 409
+            assert response.json() == {"detail": detail}
+        response = client.post("/suite/score", json={"paths": videos, "deep_dv": True})
+        assert response.status_code == 409
+        assert response.json() == {"detail": detail}
+        other = FakeClient()
+        refused = jobs_module.jobs.create("suite_score")
+        suite_routes.run_score_job(refused, other, videos, deep_dv=True)
+        job = jobs_module.jobs.get(refused)
+        assert (job["error_kind"], job["error"]) == ("busy", detail)
+        assert other.calls == []
+        assert client.post("/suite/score", json={"paths": videos}).status_code == 200
+    finally:
+        blocker.release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert jobs_module.jobs.get(job_id)["status"] == "done"
+    assert client.post("/suite/score", json={"paths": videos, "deep_dv": True}).status_code == 200
+    assert client.post("/suite/compare", json={"paths": videos, "out_dir": str(tmp_path / "out"), "mode": "fast"}).status_code == 200
+
+
+def test_d4_deep_score_releases_both_slots_after_exception(client, fake, videos, tmp_path):
+    fake.results["score"] = RuntimeError("fake failure")
+    response = client.post("/suite/score", json={"paths": videos, "deep_dv": True})
+    assert response.status_code == 200
+    assert jobs_module.jobs.get(response.json()["job_id"])["error_kind"] == "internal"
+    assert suite_routes._slots.try_acquire("compare") is None
+    assert suite_routes._slots.try_acquire("score_rank") is None
+    assert suite_routes._slots.try_acquire("score_rank") is None
+
+
+def test_d4_score_cap_refusal_does_not_take_heavy_slot():
+    slots = suite_routes._Slots()
+    assert slots.acquire("score_rank") and slots.acquire("score_rank")
+    assert slots.try_acquire("score_rank+deep_dv") == "too many suite jobs are running"
+    assert slots.try_acquire("compare") is None
+
+
+def test_d4_heavy_refusal_does_not_take_score_slot():
+    slots = suite_routes._Slots()
+    assert slots.acquire("compare")
+    assert slots.try_acquire("score_rank+deep_dv") == (
+        "a comparison is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time")
+    assert slots.acquire("score_rank") and slots.acquire("score_rank")
+
+
+def test_d4_heavy_check_and_take_is_atomic():
+    slots = suite_routes._Slots()
+    barrier = threading.Barrier(3)
+    results = []
+    def take(slot):
+        barrier.wait(timeout=5)
+        results.append((slot, slots.try_acquire(slot)))
+    threads = [start_in_thread(take, slot) for slot in ("compare", "score_rank+deep_dv")]
+    barrier.wait(timeout=5)
+    for thread in threads:
+        thread.join(5)
+        assert not thread.is_alive()
+    assert len(results) == 2
+    winners = [slot for slot, detail in results if detail is None]
+    assert len(winners) == 1
+    slots.release(winners[0])
+    assert slots.try_acquire("score_rank+deep_dv") is None
+    assert slots.try_acquire("score_rank") is None
+    assert slots.try_acquire("score_rank") == "too many suite jobs are running"
 
 
 def test_the_compare_slot_is_released_after_an_error_too(client, fake, videos, tmp_path):

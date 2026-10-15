@@ -37,27 +37,47 @@ Notes:
   excluded) must be mentioned in `README.md`, and every environment variable
   read by the top-level `*.py` files (found by AST: `os.environ.get/[]`,
   `os.getenv`, `ENV_*` constants; never `.venv`, `tests`, `scripts`) must be
-  named there. Adding a route or a variable without documenting it fails the suite.
+  named there. It also requires the frozen legacy section and every `/suite/`
+  route in `docs/SUITE_INTEGRATION.md`. Adding an undocumented route or variable fails the suite.
 - `tests/fixtures/suite/*.json` are real outputs of `python -m videosuite
-  <cmd> --json` (tool_version 0.2.0) on generated 1-second clips; the paths in
+  <cmd> --json` (tool_version 0.4.0) on generated 10-second clips; the paths in
   them were replaced by `C:\fixtures\suite`. `devices.json` was captured through
   `SuiteClient` against the Comparizer working tree.
 
-### Live suite test (opt-in)
+### Live suite tests (opt-in)
 
-`tests/test_live_suite.py` runs the REAL `devices` command and a real `score` on
+`tests/test_live_suite.py` runs REAL `devices`, `version`, `score`, `score_partial` on
 one tiny clip it generates under `tmp_path` with ffmpeg (PATH, or the suite's own
 `ffmpeg\bin`/`tools\bin`; skipped when none is found). It is skipped unless
 `VIDEOLYZER_LIVE_SUITE` is `1`. The suite's record cache is redirected into
-`tmp_path` (`VC_CACHE_DIR`); no owner media is touched.
+`tmp_path` (`VC_CACHE_DIR`), and `VIDEOSUITE_SETTINGS` points at a nonexistent
+settings file under `tmp_path`; no owner media or settings are touched. The four
+live tests are skipped by default. No torrent is started.
 
 ```powershell
 $env:VIDEOLYZER_LIVE_SUITE = "1"
 # only when the suite is not the one in D:\VideoComparatorPro\setup\env.path:
 $env:VIDEOSUITE_PYTHON = "D:\VideoComparatorPro\.venv\Scripts\python.exe"
-$env:VIDEOSUITE_ROOT   = "D:\VideoComparatorPro"
+$env:VIDEOSUITE_ROOT   = "D:\Video Comparizer"
 .\.venv\Scripts\python.exe -m pytest tests/test_live_suite.py -q
 ```
+
+### Regenerating suite fixtures
+
+With the suite interpreter/root configured as above, run:
+
+```powershell
+.\.venv\Scripts\python.exe scripts/make_suite_fixtures.py
+```
+
+This generates three 10-second clips plus a partial probe and captures `devices`,
+`version`, `score`, `score_partial`, `compare`, `rank` into `tests/fixtures/suite/`.
+It isolates `VC_CACHE_DIR` and `VIDEOSUITE_SETTINGS` in a temporary directory,
+normalizes paths to `C:\fixtures\suite` and removes its temporary files.
+FFmpeg lookup: `FFMPEG` (existing file), PATH, then the suite's `ffmpeg\bin` or
+`tools\bin`. Regeneration runs the real CLI/engine; regular tests use fakes.
+Tests disable the startup check and forbid real `taskkill`; fake PIDs never reach
+the real Job Object. Real Windows process-lifetime checks remain owner validation.
 
 ## Module smoke tests
 
@@ -100,7 +120,7 @@ print(verify_release(bad, intel))   # → flags: fake_dv (error), fake_atmos (wa
 
 ```bash
 # Start server
-uvicorn main:app --reload --port 8000
+uvicorn main:app --host 127.0.0.1 --port 8000
 
 # Trigger
 curl -X POST http://127.0.0.1:8000/magnet/ \

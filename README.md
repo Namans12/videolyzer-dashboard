@@ -18,6 +18,14 @@ A full-stack video analysis app that compares local movie files using MediaInfo,
 - Supports background jobs with progress streaming (SSE) for long-running scans.
 - Runs the installed VideoSuite (device playback scoring, quality ranking, pixel comparison) through the `/suite/...` endpoints (see `docs/SUITE_INTEGRATION.md`).
 
+## Legacy scoring (frozen)
+
+`tv_score`, `score`, `confidence_score`, `tv_support`, `composite_score` and the
+magnet-compare winner come from the Dashboard's own Bravia model. This model was
+frozen on 2026-10-11 with HDR10 26 / HLG 22 / SDR 10; it is no longer tuned and
+will be retired in Plan 3. The device-aware answer is the `suite` block on every
+magnet analysis and the `/suite/...` routes, described in `docs/SUITE_INTEGRATION.md`.
+
 ## Tech Stack
 
 - Frontend: React 19 + TypeScript + Vite
@@ -33,14 +41,17 @@ videolyzer-dashboard/
   scripts/             # Helper scripts for polling/SSE testing
   uploads/             # Temporary upload storage (auto-used by backend)
   docs/                # ARCHITECTURE.md, TESTING.md, SUITE_INTEGRATION.md
-  tests/               # pytest suite (fakes only; one opt-in live test)
+  tests/               # pytest suite (fakes by default; opt-in live suite tests)
   main.py              # FastAPI app, upload/path/magnet routes, job runners
   analysis.py          # Core metadata extraction + scoring logic
   jobs.py              # In-memory job store (locked, deep-copy reads, cancel flags)
   request_guard.py     # Host/Origin/Fetch-Metadata/Content-Type guard (ASGI middleware)
   path_guard.py        # Validation of every server-local path
   suite_client.py      # Subprocess client for the VideoSuite CLI (validates videosuite-<cmd>/1 JSON)
-  suite_routes.py      # /suite/devices, /suite/score, /suite/rank, /suite/compare
+  suite_routes.py      # /suite/version, /suite/devices, /suite/score, /suite/rank, /suite/compare
+  suite_version.py     # Version handshake, capability gates and cached startup check
+  magnet_suite.py      # Bounded, nonfatal scoring of retained partial magnet files
+  proc_guard.py        # Windows kill-on-close Job Object for suite children
   magnet.py            # libtorrent head/tail download, torrent session settings, port pool
 ```
 
@@ -70,7 +81,10 @@ Install these before running:
 npm run dev:stack
 ```
 
-This launches backend and frontend in two dedicated PowerShell windows.
+This launches backend and frontend in two dedicated PowerShell windows. The backend
+starts without `--reload` for real use. You can also run `scripts\start-local.ps1`
+directly; add `-Dev` only for development reloads, which interrupt running jobs.
+`-Python` selects the interpreter (default `python` from PATH, including libtorrent).
 
 ### 1) Install frontend dependencies
 
@@ -115,7 +129,7 @@ python -m pip install requests
 ### 3) Start the backend (FastAPI)
 
 ```bash
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
 ```
 
 ### 4) Start the frontend (Vite)
@@ -129,7 +143,7 @@ Open the app at the URL printed by Vite (usually http://127.0.0.1:5173 or http:/
 If you need custom ports, run the script directly:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -Host 127.0.0.1 -ApiPort 8000 -WebPort 5173
+powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -BindHost 127.0.0.1 -ApiPort 8000 -WebPort 5173
 ```
 
 ## How To Use
@@ -147,7 +161,19 @@ Paste a `magnet:?` URI into the magnet input. The backend will:
 2. Classify each entry: video files vs. junk (`.rar`, `.exe`, `sample`, etc.).
 3. Download only slices of each video file: the first 32 MiB of every video, plus the last 64 MiB of `.mp4` and `.m2ts` files (the `moov` atom can sit at the end). Files larger than 15 GiB also get roughly one extra piece every 10 GiB so the HDR10+ scan can look inside the stream; on Windows this interior sampling happens only when the request carries `?hdr10plus=true`. Whole pieces are fetched, so the real amount is slightly larger.
 4. Run the standard analysis on each partial file and mark which ones are good or bad to play.
-5. Delete the partial download and tear down the torrent session.
+5. Pause the torrent, attach device-aware VideoSuite partial scores to each analysis,
+   then delete the partial download and tear down the torrent session.
+
+Every magnet analysis carries a `suite` block: `ok` includes `tool_version`,
+`partial`, `record` and `best_player`; `unavailable` explains a missing suite or
+missing `score_partial` capability; `error` includes `error_kind` and `message`;
+`skipped` explains cancellation, the file limit or the exhausted budget. Suite
+failure is nonfatal to the magnet job. At most 8 files are scored sequentially
+per torrent, within a 300 s budget counted from the start of the suite stage,
+before client creation and the version check. The torrent is paused throughout
+that stage. A last score can take 105 s; termination, wait, reader joins and pipe
+cleanup share one collective 5 s deadline. Worst case: 300 + 105 + 5 = 410 s,
+below the 420 s stage ceiling.
 
 The backend never downloads a large file in full and never seeds on purpose: the session lives only for the job and is removed afterwards, but while it runs it may upload the pieces it holds to other peers (capped at 50 KiB/s, see below). The temp directory is removed regardless of success or failure.
 
@@ -187,7 +213,33 @@ Every route passes the request guard; every route that takes a server-local path
 - POST /suite/rank - quality + playback ranking of 1 to 50 video files using an existing folder of Comparizer reports (job)
 - POST /suite/compare - pixel comparison of 1 to 50 video files into an output folder (job, one at a time)
 
-The four `/suite/...` routes are described in `docs/SUITE_INTEGRATION.md` (request bodies, response documents, error kinds, exit codes). A `/suite` job POST answers 503 `{"detail": "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"}` and creates no job when the suite is not installed; a second `/suite/compare` (or a third `/suite/score` or `/suite/rank`) while others run answers 409.
+The five `/suite/...` routes are described in `docs/SUITE_INTEGRATION.md` (request bodies, response documents, error kinds, exit codes). A `/suite` job POST answers 503 `{"detail": "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"}` and creates no job when the suite is not installed.
+
+Heavy jobs are `suite_compare` and `suite_score` with `deep_dv: true`: only one
+runs at a time. A second comparison gets 409 `a comparison is already running`.
+Other heavy-job conflicts get 409 `a comparison is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`
+or `a deep Dolby Vision scan is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`, naming the active job.
+At most two score/rank jobs run together; exceeding that gets 409
+`too many suite jobs are running` (this capacity check takes precedence).
+Magnet jobs are not heavy: their short, sequential partial scores can run beside a heavy job.
+
+Compare timeout uses a valid positive `VIDEOSUITE_COMPARE_TIMEOUT_S` exactly.
+Otherwise it is `max(21600, pairs * per_pair_budget + 600)` seconds,
+where `n = min(len(paths), 2 * top)`, `pairs = n * (n - 1) / 2`, and the per-pair
+budget is 1800 s for `fast` or 9000 s for `accurate`.
+
+On Windows, each real suite child is attached immediately after launch to a
+kill-on-close Job Object. Closing or crashing the backend kills its attached
+children; this is the primary guarantee. Shutdown cleanup is the fallback:
+`scripts/start-local.ps1` starts uvicorn with `--timeout-graceful-shutdown 3`,
+so one Ctrl+C runs the shutdown cleanup (which kills registered process trees)
+after at most 3 seconds, even while a suite job is running. A second Ctrl+C
+is not needed and can skip the cleanup. Job Object failures (including nested
+jobs) are logged and leave only that shutdown cleanup, so crash protection is
+best effort on those systems. If you start uvicorn yourself, pass the same flag. Cancel/timeout kills the process tree.
+Under thread exhaustion, injected cleanup killers must return promptly; Python
+cannot preempt them inline. If termination fails and no cleanup thread can start,
+an active daemon reader's pipe can remain pending EOF/garbage collection.
 
 ## Job states
 
@@ -252,7 +304,7 @@ The two path-guard environment variables are listed under Environment variables 
 
 ## Environment variables
 
-The backend reads these variables (all optional). The two `VIDEOLYZER_` variables are read on every request. `VIDEOSUITE_PYTHON` and `VIDEOSUITE_ROOT` are resolved once, when the first `/suite` request creates the suite client (a failed lookup is retried on the next request; after a success restart the backend to change them). `VIDEOSUITE_COMPARE_TIMEOUT_S` is read at every compare call.
+The backend reads these variables (all optional). The two path-guard `VIDEOLYZER_` variables are read on every request; the startup-check switch is read at startup. `VIDEOSUITE_PYTHON` and `VIDEOSUITE_ROOT` are resolved when the startup check or first suite use creates the suite client (a failed lookup is retried; after a success restart the backend to change them). `VIDEOSUITE_COMPARE_TIMEOUT_S` is read at every compare call.
 
 | Variable | Read by | Meaning |
 | --- | --- | --- |
@@ -260,11 +312,20 @@ The backend reads these variables (all optional). The two `VIDEOLYZER_` variable
 | `VIDEOLYZER_ALLOW_REMOTE_DRIVES` | `path_guard.py` | `1` allows paths typed with a mapped network drive letter (they resolve to UNC; see the remote-drive rule under Security model). Anything else (default): refused with 400 `network drives are not allowed`. Paths typed as UNC and device paths stay refused. |
 | `VIDEOSUITE_PYTHON` | `suite_client.py` | Absolute path of the suite's `python.exe` (never a `.bat`, `.cmd` or a shell). Used together with `VIDEOSUITE_ROOT`. |
 | `VIDEOSUITE_ROOT` | `suite_client.py` | The suite folder that contains the `videosuite` package. It becomes the child's working folder and `PYTHONPATH`; its `tools\bin` and `ffmpeg\bin` folders are put on the child's PATH. |
-| `VIDEOSUITE_COMPARE_TIMEOUT_S` | `suite_client.py` | Time limit of one `compare` call in seconds (default 21600 = 6 h). An unparsable, zero or negative value falls back to the default. |
+| `VIDEOLYZER_SUITE_STARTUP_CHECK` | `main.py` | Defaults to `1`: check the suite version in a daemon thread at startup. Set to `0` to disable the startup check. |
+| `VIDEOSUITE_COMPARE_TIMEOUT_S` | `suite_client.py` | Valid positive seconds used exactly for `compare`; unset, unparsable, zero or negative values use the pair-scaled formula above (minimum 21600 = 6 h). |
 
-When `VIDEOSUITE_PYTHON` and `VIDEOSUITE_ROOT` are not both set, the suite is looked up in `D:\VideoComparatorPro\setup\env.path` (its `python=` line; the root is the grandparent folder of that file). If neither finds a suite, the `/suite` routes answer 503.
+When `VIDEOSUITE_PYTHON` and `VIDEOSUITE_ROOT` are not both set, the suite is looked up in `D:\VideoComparatorPro\setup\env.path` (its `python=` line; the root is the grandparent folder of that file). If neither finds a suite, `/suite/devices` and the suite job routes answer 503.
 
-The opt-in live test (`tests/test_live_suite.py`) uses `VIDEOLYZER_LIVE_SUITE=1` (read by the test, not by the app) and redirects the suite's record cache into a temporary folder with `VC_CACHE_DIR`; see `docs/TESTING.md`.
+`GET /suite/version` always answers HTTP 200 with the handshake status, version, minimum (`0.3.0`), capabilities, schemas, engine tag, message and check time. Add `?refresh=true` to force a check. Successful and too-old checks are cached for 300 seconds; other results for 10 seconds. A 0.3.0 suite without `version` is detected through `devices` and reports only the `devices` capability. `/suite/devices` refuses versions below the minimum with a reinstall hint.
+
+Handshake statuses are `ok`, `too_old`, `unavailable`, `error` and `unchecked`
+(a test/legacy client without a `version` method). The reinstall message is:
+`Reinstall the Comparizer (run the latest Video Comparator installer), then restart the Dashboard.`
+The 0.3.0 fallback reports capabilities `["devices"]`, so magnet files show
+`The installed VideoSuite cannot score partial downloads (needs 0.4.0 or later); reinstall the Comparizer.`
+
+The opt-in live test (`tests/test_live_suite.py`) uses `VIDEOLYZER_LIVE_SUITE=1` (read by the test, not by the app) and redirects the suite's record cache into a temporary folder with `VC_CACHE_DIR` and points the suite's settings file at a temporary path with `VIDEOSUITE_SETTINGS` (so your own `settings.json` never changes a test); see `docs/TESTING.md`.
 
 ## Helper Scripts
 
@@ -282,7 +343,7 @@ The scripts folder includes quick diagnostics:
 
 ### Change note: TV scoring and playability (RB-1, RB-2, RB-6)
 
-- **Non-DV base scores (RB-1).** A file without Dolby Vision used to get a flat base of 10 in `tv_score` (the 0 stored for `None` was dropped). `score_for_tv` now classifies it from the HDR summary and uses provisional, owner-tunable base scores in `BRAVIA_8_II["dv_tv_score"]`: **HDR10 26, HLG 22, SDR 10** (first shipped as 28/24/12; lowered by 2 after the pre-Plan-3 review so plain HDR10 no longer beats generic Profile 8) (HLG = `hlg` / `arib std-b67`; HDR10 = `hdr10`, SMPTE ST 2084/2086, `pq`; anything else = SDR). Unknown DV profiles (9, 10, 20, ...) keep the flat 10. Example: MP4, 20.5 Mbps, 10-bit, DD+, WEB-DL, HDR10 scores 61 (45 before the base scores existed). **Owner-visible:** `tv_score` of non-DV files rises by 2 to 18 points and rankings change: with all other attributes equal, plain HDR10 (26) outranks Dolby Vision 8.2 (25), Profile 7 FEL (22) and Profile 4 (15), ties with Profile 7 without a known layer (26), and ranks below 8.x (27), 8.1 (35), 8.4 (32), Profile 5 (30) and Profile 7 MEL (30). An HDR10 REMUX with a high bitrate can now reach about 74 to 80 points, i.e. the "Very Good" and "Excellent" labels. These three numbers are provisional constants for you to tune.
+- **Non-DV base scores (RB-1).** A file without Dolby Vision used to get a flat base of 10 in `tv_score` (the 0 stored for `None` was dropped). `score_for_tv` now classifies it from the HDR summary and uses frozen legacy base scores in `BRAVIA_8_II["dv_tv_score"]`: **HDR10 26, HLG 22, SDR 10** (first shipped as 28/24/12; lowered by 2 after the pre-Plan-3 review so plain HDR10 no longer beats generic Profile 8) (HLG = `hlg` / `arib std-b67`; HDR10 = `hdr10`, SMPTE ST 2084/2086, `pq`; anything else = SDR). Unknown DV profiles (9, 10, 20, ...) keep the flat 10. Example: MP4, 20.5 Mbps, 10-bit, DD+, WEB-DL, HDR10 scores 61 (45 before the base scores existed). **Owner-visible:** `tv_score` of non-DV files rises by 2 to 18 points and rankings change: with all other attributes equal, plain HDR10 (26) outranks Dolby Vision 8.2 (25), Profile 7 FEL (22) and Profile 4 (15), ties with Profile 7 without a known layer (26), and ranks below 8.x (27), 8.1 (35), 8.4 (32), Profile 5 (30) and Profile 7 MEL (30). An HDR10 REMUX with a high bitrate can now reach about 74 to 80 points, i.e. the "Very Good" and "Excellent" labels. These three numbers are frozen as of 2026-10-11 and must not be tuned.
 - **`score` and `confidence_score` depend on `tv_support["profile_supported"]` (RB-2).** `score_video` adds +5 for "Yes" / +2 for "Partial" and `score_confidence` adds +4 / +2. Because non-DV HEVC files keep `profile_supported` = "No" (only `playable` says they play), their `score` and `confidence_score` are unchanged by this task; if the owner later makes `profile_supported` "Yes" or "Partial" for HDR10/HLG/SDR, those bonuses apply and `score`/`confidence_score` rise accordingly. `tv_score` is the value that changes now.
 - **`playable` key (RB-2).** `tv_compatibility_heuristic` returns an extra `playable` ("Yes" / "No"): "No" only when the video codec is not one the TV's USB player supports (for example MPEG-2, VC-1) or the container is a known unsupported one (for example raw HEVC). `profile_supported` keeps its values (Yes, Partial, Limited, No, Unknown) and is only about Dolby Vision; for HEVC without Dolby Vision it is "No" with the note "No Dolby Vision; plays as HDR10/HLG/SDR". `build_recommendation` now tests `playable`, so HDR10/HLG/SDR HEVC and H.264 files are no longer reported as "Not a suitable playback target for this TV".
 - **E-AC-3 audio token (RB-6).** `E-AC-3` / `E-AC3` now scores like Dolby Digital Plus (10) instead of falling through to AC-3 (5). DTS:X stays at the plain DTS value; the audio model itself is unchanged. **Owner-visible:** `score` and `tv_score` rise for E-AC-3 tracks that have no commercial name (such as "Dolby Digital Plus") in their metadata; `confidence_score` does not change.
@@ -317,9 +378,9 @@ The scripts folder includes quick diagnostics:
 ## Known limitations
 
 - Another browser tab that is polling a cancelled magnet or comparison job keeps polling until the job is purged: the React UI treats only `done` and `error` as terminal and does not know `cancelled` yet (UI deferral to Plan 3).
-- There is no cap on concurrent path and magnet jobs (`GET /analyze-path/`, `POST /magnet/`, `POST /compare-magnets/`, uploads): each running job holds one of the 40 threads of the framework's thread pool for its whole run, so many parallel jobs can use them all and make other requests wait. This predates the Plan 2 work and is deferred to Plan 3 (magnet jobs are limited by the 119 listen ports, the other kinds are not limited at all). Only the `/suite` jobs are capped (one compare, two score/rank).
+- There is no cap on concurrent path and magnet jobs (`GET /analyze-path/`, `POST /magnet/`, `POST /compare-magnets/`, uploads): each running job holds one of the 40 threads of the framework's thread pool for its whole run, so many parallel jobs can use them all and make other requests wait. This predates the Plan 2 work and is deferred to Plan 3 (magnet jobs are limited by the 119 listen ports, the other kinds are not limited at all). Only the `/suite` jobs are capped (one heavy compare/deep-DV score, two score/rank).
 - The job-starting GET routes `/analyze-path/` and `/scan-folder/` stay GET for UI compatibility; see Security model for the residual risk in old browsers. Plan 3 moves them to POST.
-- The Dashboard's own TV scoring is Bravia-only and stays for magnet results until Plan 3; magnet-sourced analyses are not scored by the VideoSuite (the CLI takes local paths, not records).
+- The Dashboard's own TV scoring is frozen Bravia-only legacy until Plan 3; magnet analyses now also carry device-aware partial scores in `suite`, while the existing winner still uses the legacy model.
 - Jobs live in memory only: a restart loses them, and only the newest 20 finished jobs are kept.
 - The magnet and torrent code is tested with fakes only (libtorrent is not installed on the development machine). Run one real magnet and the live check above after changing it.
 - The suite's `/suite` paths accept video files only, not folders (Plan 3 may revisit).
@@ -330,8 +391,8 @@ The scripts folder includes quick diagnostics:
 
 - 507 disk full: clean the uploads folder and free local disk space.
 - Upload too large: a multipart file that reports more than 10 GB is refused with 400 and the advice to use the path input instead; a request body above 120 GB is refused with 413. Use `GET /analyze-path/` (the path box in the UI) for big local files.
-- 409 on `/suite/...`: another comparison is running (one `/suite/compare` at a time) or two `/suite/score` / `/suite/rank` jobs are running; retry when one has finished.
-- 502 `VideoSuite does not support 'devices'; reinstall the Comparizer (videosuite 0.3.0 or later)` on `GET /suite/devices`: the installed suite is older than 0.3.0 and has no `devices` command; reinstall the Comparizer from a version that has it.
+- 409 on `/suite/...`: another heavy job (comparison or deep-DV score) or two score/rank jobs are running; retry when one has finished.
+- 502 `The installed VideoSuite is older than 0.3.0 (it has no 'devices' command). Reinstall the Comparizer (run the latest Video Comparator installer), then restart the Dashboard.` on `GET /suite/devices`: the installed suite is older than 0.3.0 and has no `devices` command (a suite that reports an older version gets `The installed VideoSuite is <version>; the Dashboard needs 0.3.0 or later.` plus the same advice); reinstall the Comparizer from a version that has it.
 - 503 on `/suite/...`: the VideoSuite was not found. Set `VIDEOSUITE_PYTHON` and `VIDEOSUITE_ROOT` (see Environment variables) and restart the backend.
 - No Dolby Vision details: verify ffprobe/mediainfo availability and file DV signaling.
 - CORS/UI issues: use localhost/127.0.0.1 for both frontend and backend.

@@ -18,6 +18,7 @@ EXPECTED_ROUTES = {
 }
 # Added by D11 (suite_routes.py); the twelve routes above keep their paths and methods.
 SUITE_ROUTES = {
+    "/suite/version",
     "/suite/devices",
     "/suite/score",
     "/suite/rank",

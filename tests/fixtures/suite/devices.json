@@ -1,11 +1,11 @@
 {
  "schema": "videosuite-devices/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "devices": [
   {
    "id": "galaxy_tab_s9_ultra",
    "label": "Samsung Galaxy Tab S9 Ultra (SM-X910 / SM-X916B)",
-   "rules_version": 2,
+   "rules_version": 3,
    "verified_by_owner": false,
    "display": {
     "type": "AMOLED",
@@ -33,7 +33,8 @@
       "forum": 2,
       "inferred": 19,
       "unknown": 7
-     }
+     },
+     "overrides": []
     },
     {
      "id": "samsung_video",
@@ -46,14 +47,19 @@
       "forum": 2,
       "inferred": 18,
       "unknown": 13
-     }
+     },
+     "overrides": []
     }
-   ]
+   ],
+   "settings": {
+    "usb_filesystem": null,
+    "audio_output": null
+   }
   },
   {
    "id": "sony_bravia_8_ii",
    "label": "Sony BRAVIA 8 II 65\" (K-65XR80M2 / K-65XR8M2), USB drive",
-   "rules_version": 2,
+   "rules_version": 3,
    "verified_by_owner": false,
    "display": {
     "type": "QD-OLED",
@@ -75,13 +81,14 @@
      "label": "Sony USB media player (built-in)",
      "default": true,
      "rule_counts": {
-      "official": 19,
+      "official": 22,
       "owner": 0,
       "reviewed": 5,
       "forum": 5,
-      "inferred": 5,
+      "inferred": 7,
       "unknown": 10
-     }
+     },
+     "overrides": []
     },
     {
      "id": "kodi",
@@ -94,14 +101,33 @@
       "forum": 8,
       "inferred": 26,
       "unknown": 5
-     }
+     },
+     "overrides": []
+    },
+    {
+     "id": "just_player",
+     "label": "Just Player on the TV (ExoPlayer based)",
+     "default": false,
+     "rule_counts": {
+      "official": 0,
+      "owner": 0,
+      "reviewed": 0,
+      "forum": 13,
+      "inferred": 20,
+      "unknown": 8
+     },
+     "overrides": []
     }
-   ]
+   ],
+   "settings": {
+    "usb_filesystem": null,
+    "audio_output": null
+   }
   },
   {
    "id": "vivobook_pro_16x",
    "label": "ASUS Vivobook Pro 16X OLED M7600QE (Windows 11)",
-   "rules_version": 2,
+   "rules_version": 3,
    "verified_by_owner": false,
    "display": {
     "type": "OLED",
@@ -125,7 +151,8 @@
       "forum": 1,
       "inferred": 32,
       "unknown": 4
-     }
+     },
+     "overrides": []
     },
     {
      "id": "windows_player",
@@ -138,9 +165,20 @@
       "forum": 2,
       "inferred": 24,
       "unknown": 13
-     }
+     },
+     "overrides": []
     }
-   ]
+   ],
+   "settings": {
+    "usb_filesystem": null,
+    "audio_output": null
+   }
   }
- ]
+ ],
+ "settings": {
+  "path": "C:\\fixtures\\suite\\no_settings.json",
+  "loaded": false,
+  "errors": [],
+  "applied_count": 0
+ }
 }

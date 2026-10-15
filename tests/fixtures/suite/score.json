@@ -1,11 +1,11 @@
 {
  "schema": "videosuite-score/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "records": [
   {
    "schema": "media-record/1",
    "facts_version": 2,
-   "id": "ef7e05bf6a269dc8865169eba9e28f72b8be62a9",
+   "id": "c4fabb6b66f3958ee8bc947c83301ed19e81253e",
    "source": {
     "path": "C:\\fixtures\\suite\\clip_a_crf18.mkv",
     "magnet": null,
@@ -16,9 +16,9 @@
    },
    "container": {
     "format": "matroska",
-    "size_bytes": 131133,
-    "duration_s": 1.0,
-    "overall_bitrate_kbps": 1049
+    "size_bytes": 1336638,
+    "duration_s": 10.0,
+    "overall_bitrate_kbps": 1069
    },
    "video": {
     "codec": "h264",
@@ -30,7 +30,7 @@
     "picture_height": null,
     "fps": 24.0,
     "bit_depth": 8,
-    "bitrate_kbps": 1049,
+    "bitrate_kbps": 1069,
     "bitrate_source": "container_estimate"
    },
    "hdr": {
@@ -83,6 +83,7 @@
      ],
      "evidence": "reviewed",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -109,7 +110,10 @@
        "rule": ""
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "galaxy_tab_s9_ultra/samsung_video": {
      "device": "galaxy_tab_s9_ultra",
@@ -122,6 +126,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -141,6 +146,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -155,7 +167,10 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "sony_bravia_8_ii/builtin_usb": {
      "device": "sony_bravia_8_ii",
@@ -168,6 +183,7 @@
      ],
      "evidence": "official",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -194,7 +210,10 @@
        "rule": ""
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "sony_bravia_8_ii/kodi": {
      "device": "sony_bravia_8_ii",
@@ -207,6 +226,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -226,6 +246,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -240,7 +267,67 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "sony_bravia_8_ii/just_player": {
+     "device": "sony_bravia_8_ii",
+     "player": "just_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: the TV's hardware decoders; not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV plays in Just Player on a BRAVIA 9",
+       "confidence": "forum",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "vivobook_pro_16x/vlc": {
      "device": "vivobook_pro_16x",
@@ -253,6 +340,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -272,6 +360,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -286,7 +381,10 @@
        "rule": "containers.matroska"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "vivobook_pro_16x/windows_player": {
      "device": "vivobook_pro_16x",
@@ -299,6 +397,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -318,6 +417,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -332,15 +438,47 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     }
    },
-   "pixel_results": []
+   "pixel_results": [],
+   "best_player": {
+    "galaxy_tab_s9_ultra": {
+     "player": "vlc",
+     "label": "VLC for Android",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC for Android (the default player): no other player is clearly better for this file"
+    },
+    "sony_bravia_8_ii": {
+     "player": "builtin_usb",
+     "label": "Sony USB media player (built-in)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "builtin_usb",
+     "switch": false,
+     "reason": "Sony USB media player (built-in) (the default player): no other player is clearly better for this file"
+    },
+    "vivobook_pro_16x": {
+     "player": "vlc",
+     "label": "VLC 3.0.x (Direct3D11 output)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC 3.0.x (Direct3D11 output) (the default player): no other player is clearly better for this file"
+    }
+   }
   },
   {
    "schema": "media-record/1",
    "facts_version": 2,
-   "id": "95fb25df007462bf4aa0bc69554f8a8c2383f33e",
+   "id": "d86118ee4d7a93234661b9e99bc74c684aa67d85",
    "source": {
     "path": "C:\\fixtures\\suite\\clip_b_crf34.mkv",
     "magnet": null,
@@ -351,9 +489,9 @@
    },
    "container": {
     "format": "matroska",
-    "size_bytes": 27584,
-    "duration_s": 1.0,
-    "overall_bitrate_kbps": 221
+    "size_bytes": 308606,
+    "duration_s": 10.0,
+    "overall_bitrate_kbps": 247
    },
    "video": {
     "codec": "h264",
@@ -365,7 +503,7 @@
     "picture_height": null,
     "fps": 24.0,
     "bit_depth": 8,
-    "bitrate_kbps": 221,
+    "bitrate_kbps": 247,
     "bitrate_source": "container_estimate"
    },
    "hdr": {
@@ -418,6 +556,7 @@
      ],
      "evidence": "reviewed",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -444,7 +583,10 @@
        "rule": ""
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "galaxy_tab_s9_ultra/samsung_video": {
      "device": "galaxy_tab_s9_ultra",
@@ -457,6 +599,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -476,6 +619,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -490,7 +640,10 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "sony_bravia_8_ii/builtin_usb": {
      "device": "sony_bravia_8_ii",
@@ -503,6 +656,7 @@
      ],
      "evidence": "official",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -529,7 +683,10 @@
        "rule": ""
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "sony_bravia_8_ii/kodi": {
      "device": "sony_bravia_8_ii",
@@ -542,6 +699,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -561,6 +719,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -575,7 +740,67 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "sony_bravia_8_ii/just_player": {
+     "device": "sony_bravia_8_ii",
+     "player": "just_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: the TV's hardware decoders; not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV plays in Just Player on a BRAVIA 9",
+       "confidence": "forum",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "vivobook_pro_16x/vlc": {
      "device": "vivobook_pro_16x",
@@ -588,6 +813,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -607,6 +833,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -621,7 +854,10 @@
        "rule": "containers.matroska"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "vivobook_pro_16x/windows_player": {
      "device": "vivobook_pro_16x",
@@ -634,6 +870,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -653,6 +890,13 @@
        "rule": "containers.matroska"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -667,15 +911,47 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     }
    },
-   "pixel_results": []
+   "pixel_results": [],
+   "best_player": {
+    "galaxy_tab_s9_ultra": {
+     "player": "vlc",
+     "label": "VLC for Android",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC for Android (the default player): no other player is clearly better for this file"
+    },
+    "sony_bravia_8_ii": {
+     "player": "builtin_usb",
+     "label": "Sony USB media player (built-in)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "builtin_usb",
+     "switch": false,
+     "reason": "Sony USB media player (built-in) (the default player): no other player is clearly better for this file"
+    },
+    "vivobook_pro_16x": {
+     "player": "vlc",
+     "label": "VLC 3.0.x (Direct3D11 output)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC 3.0.x (Direct3D11 output) (the default player): no other player is clearly better for this file"
+    }
+   }
   },
   {
    "schema": "media-record/1",
    "facts_version": 2,
-   "id": "e5180c942ca63cef5c64ecb5ec31c4292ae63e70",
+   "id": "6d3692afb5c680ab90a9d6496cce0b8caa914ce7",
    "source": {
     "path": "C:\\fixtures\\suite\\clip_c_crf26.mp4",
     "magnet": null,
@@ -686,9 +962,9 @@
    },
    "container": {
     "format": "mp4",
-    "size_bytes": 67245,
-    "duration_s": 1.0,
-    "overall_bitrate_kbps": 538
+    "size_bytes": 694628,
+    "duration_s": 10.0,
+    "overall_bitrate_kbps": 556
    },
    "video": {
     "codec": "h264",
@@ -700,7 +976,7 @@
     "picture_height": null,
     "fps": 24.0,
     "bit_depth": 8,
-    "bitrate_kbps": 528,
+    "bitrate_kbps": 552,
     "bitrate_source": "stream"
    },
    "hdr": {
@@ -753,6 +1029,7 @@
      ],
      "evidence": "reviewed",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -779,7 +1056,10 @@
        "rule": ""
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "galaxy_tab_s9_ultra/samsung_video": {
      "device": "galaxy_tab_s9_ultra",
@@ -792,6 +1072,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -811,6 +1092,13 @@
        "rule": "containers.mp4"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -825,7 +1113,10 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "sony_bravia_8_ii/builtin_usb": {
      "device": "sony_bravia_8_ii",
@@ -838,6 +1129,7 @@
      ],
      "evidence": "official",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -864,7 +1156,10 @@
        "rule": ""
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "sony_bravia_8_ii/kodi": {
      "device": "sony_bravia_8_ii",
@@ -877,6 +1172,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -896,6 +1192,13 @@
        "rule": "containers.mp4"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -910,7 +1213,67 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "sony_bravia_8_ii/just_player": {
+     "device": "sony_bravia_8_ii",
+     "player": "just_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: the TV's hardware decoders; not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container mp4: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "containers.mp4"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "vivobook_pro_16x/vlc": {
      "device": "vivobook_pro_16x",
@@ -923,6 +1286,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -942,6 +1306,13 @@
        "rule": "containers.mp4"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -956,7 +1327,10 @@
        "rule": "containers.mp4"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     },
     "vivobook_pro_16x/windows_player": {
      "device": "vivobook_pro_16x",
@@ -969,6 +1343,7 @@
      ],
      "evidence": "inferred",
      "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
      "effective_audio": null,
      "audio_language": null,
      "subtitle_choice": null,
@@ -988,6 +1363,13 @@
        "rule": "containers.mp4"
       },
       {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
        "code": "no_audio_tracks",
        "severity": "warn",
        "message": "the file has no audio track",
@@ -1002,10 +1384,48 @@
        "rule": "video_codecs.h264"
       }
      ],
-     "hints": []
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
     }
    },
-   "pixel_results": []
+   "pixel_results": [],
+   "best_player": {
+    "galaxy_tab_s9_ultra": {
+     "player": "vlc",
+     "label": "VLC for Android",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC for Android (the default player): no other player is clearly better for this file"
+    },
+    "sony_bravia_8_ii": {
+     "player": "builtin_usb",
+     "label": "Sony USB media player (built-in)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "builtin_usb",
+     "switch": false,
+     "reason": "Sony USB media player (built-in) (the default player): no other player is clearly better for this file"
+    },
+    "vivobook_pro_16x": {
+     "player": "vlc",
+     "label": "VLC 3.0.x (Direct3D11 output)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC 3.0.x (Direct3D11 output) (the default player): no other player is clearly better for this file"
+    }
+   }
   }
- ]
+ ],
+ "settings": {
+  "path": "C:\\fixtures\\suite\\no_settings.json",
+  "loaded": false,
+  "errors": [],
+  "applied_count": 0
+ }
 }

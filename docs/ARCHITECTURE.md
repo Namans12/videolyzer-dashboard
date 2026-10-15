@@ -21,7 +21,10 @@ request_guard.py    ASGI middleware: Host / Origin / Sec-Fetch-Site / JSON Conte
 path_guard.py       validate_user_path(): every server-local path, allowed roots, remote drives.
 suite_client.py     SuiteClient: runs `python -m videosuite <cmd> --json` as a subprocess,
                     validates the videosuite-<cmd>/1 document, kills the process tree.
-suite_routes.py     /suite/devices|score|rank|compare: pydantic bodies, guards, jobs, slots.
+suite_routes.py     /suite/version|devices|score|rank|compare: bodies, guards, jobs, heavy slots.
+suite_version.py    Numeric version handshake, 300 s definitive/10 s failure cache, startup check.
+magnet_suite.py     Nonfatal score_partial calls on retained probes: 8 files, 300 s stage budget.
+proc_guard.py       Windows kill-on-close Job Object, assigned per real suite child.
 analysis.py         analyze_file() — MediaInfo + ffprobe + dovi_tool fusion.
 magnet.py           libtorrent magnet metadata + head/tail piece download, port pool.
 filename_intel.py   Pure-regex parser for release names → traits dict.
@@ -47,6 +50,8 @@ _run_magnet_job
     → analysis.analyze_file × each video
         → mediainfo + ffprobe (parallel)
         → dovi_tool (if HEVC + DV signaled)
+    → pause torrent → magnet_suite.score_partials before probe cleanup
+        → each analysis.suite: ok | unavailable | error | skipped
     → comparison.enrich_release × each result
         → filename_intel.parse_release_name
         → verification.verify_release
@@ -78,7 +83,7 @@ POST /suite/score|rank|compare  { paths, ... }
     ↓ RequestGuard (JSON only) → pydantic body (extra="forbid") → get_suite_client()
     ↓                             (SuiteUnavailable → 503, no job)
     ↓ path guard on every path / reports_dir / out_dir (400/403/404)
-    ↓ concurrency slot (compare: 1, score+rank: 2 → else 409)
+    ↓ concurrency slot (one heavy compare/deep-DV score; two score/rank → else 409)
 jobs.create("suite_score" | "suite_rank" | "suite_compare") → {job_id}
     ↓                                        (background task, slot handed to the runner)
 run_score_job / run_rank_job / run_compare_job
@@ -86,7 +91,25 @@ run_score_job / run_rank_job / run_compare_job
         stdout → validated JSON document, stderr → progress lines (compare) + stderr tail
     → jobs.finish(results=<document>)  or  jobs.fail(error, error_kind) + error_detail
 GET /suite/devices → SuiteClient.devices(), cached 60 s, errors mapped to 503/504/502
+GET /suite/version → suite_version.ensure(), cached handshake, always HTTP 200
 ```
+
+The startup daemon checks the suite unless `VIDEOLYZER_SUITE_STARTUP_CHECK=0`.
+The minimum is 0.3.0; capabilities gate partial scoring (`score_partial`, 0.4.0).
+Magnet suite calls are sequential and can run alongside a heavy job. The torrent
+stays paused during scoring; the budget starts before client/version discovery.
+The bound is 300 + 105 + 5 = 410 s < 420 s, with tree killer, wait, reader joins
+and pipe closes sharing the 5 s cleanup deadline. Compare uses the pair-scaled
+timeout documented in `SUITE_INTEGRATION.md` unless a positive override is set.
+
+Each real Windows suite child is assigned to the Job Object after `Popen`;
+the Job Object is the primary guarantee. Shutdown also kills registered live
+process trees (the fallback); `start-local.ps1` runs uvicorn with
+`--timeout-graceful-shutdown 3`, so one Ctrl+C triggers that cleanup after at
+most 3 s even during a running suite job. Job Object failure is logged
+and leaves crash cleanup best effort. If cleanup workers cannot start, injected
+killers must return promptly inline. Failed termination plus thread exhaustion
+can leave a daemon reader pipe pending EOF/garbage collection.
 
 ## Job record shape
 
@@ -173,7 +196,7 @@ jobs.get(job_id) == {
 | Detect a new HDR format                   | `analysis.py:get_hdr_summary` + `filename_intel.py` HDR section |
 | Add a new release-name token              | `filename_intel.py:PLATFORM_TOKENS` etc. |
 | Add a fake-release check                  | New `_check_*` in `verification.py`, then list in `verify_release` |
-| Score a new release feature               | `comparison.py:composite_score` |
+| Change device-aware scoring               | Comparizer VideoSuite; Dashboard `BRAVIA_8_II`/`score_for_tv`/`composite_score` are frozen legacy until Plan 3 |
 | Add a new comparison row                  | `comparison.py:COMPARISON_ROWS` |
 | Add a new API route                       | `main.py`, follow `/magnet/` pattern; add path guard / request guard rules and the README endpoint list |
 | Add a VideoSuite command or option        | `suite_client.py` (validation + document keys), `suite_routes.py` (body model, runner), `docs/SUITE_INTEGRATION.md` |

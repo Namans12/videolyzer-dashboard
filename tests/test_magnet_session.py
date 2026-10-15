@@ -7,6 +7,9 @@ magnet after this task (see README, "Torrent session hardening").
 from __future__ import annotations
 
 import sys
+import os
+import types
+from pathlib import Path
 import threading
 
 import pytest
@@ -15,6 +18,172 @@ import magnet
 import main
 
 MIB = 1024 * 1024
+
+
+class _FakeLtFull:
+    class alert:
+        class category_t:
+            all_categories = 1
+
+    def __init__(self, ext=".mkv"):
+        self.name = "Show/Movie.2160p.DV" + ext
+        self.events = []
+        self.workdir = None
+        outer = self
+        class Session:
+            delete_files = 1
+            def __init__(self, settings): pass
+            def add_dht_router(self, *args): pass
+            def pop_alerts(self): return []
+            def add_torrent(self, params):
+                outer.workdir = params.save_path
+                p = Path(params.save_path, outer.name)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(b"header")
+                return Handle()
+            def remove_torrent(self, *args): pass
+            def pause(self): pass
+        class Handle:
+            def status(self): return types.SimpleNamespace(has_metadata=True)
+            def torrent_file(self): return Info()
+            def prioritize_files(self, *args): pass
+            def piece_priority(self, *args): pass
+            def set_piece_deadline(self, *args): pass
+            def have_piece(self, *args): return True
+            def pause(self): outer.events.append("pause")
+        class Info:
+            def files(self): return self
+            def num_files(self): return 1
+            def file_path(self, i): return outer.name
+            def file_size(self, i): return 40 * 2**30
+            def file_offset(self, i): return 0
+            def piece_length(self): return 16 * MIB
+            def name(self): return "Show"
+            def info_hash(self): return "hash"
+        self.session = Session
+
+    def parse_magnet_uri(self, uri): return types.SimpleNamespace()
+
+
+@pytest.mark.parametrize("ext,middle,mode", [(".mkv", False, "ok"), (".mkv", True, "ok"),
+                                           (".mp4", False, "ok"), (".mkv", False, "raises"),
+                                           (".mkv", False, "none"), (".mkv", False, "emit_raises")])
+def test_partial_hook_files_pause_and_cleanup(monkeypatch, ext, middle, mode):
+    lt = _FakeLtFull(ext)
+    monkeypatch.setattr(magnet, "_load_libtorrent", lambda: lt)
+    monkeypatch.setattr(magnet, "_check_temp_disk_space", lambda p: None)
+    monkeypatch.setattr(magnet.time, "sleep", lambda s: None)
+    monkeypatch.setattr(magnet.subprocess, "run", lambda *a, **kw: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(magnet, "_should_middle_sample", lambda *a: middle)
+    monkeypatch.setattr(magnet, "tail_is_present", lambda *a: True)
+    monkeypatch.setattr(magnet, "analyze_file", lambda *a, **kw: {"score": 5})
+    seen = []
+    def scorer(entries, emit, cancel):
+        assert lt.events == ["pause"]
+        e = entries[0]
+        assert os.path.isfile(e["path"])
+        assert e["real_size"] == 40 * 2**30
+        assert e["real_name"] == "Movie.2160p.DV" + ext
+        assert e["coverage"] == ("head_tail" if ext == ".mp4" else "head")
+        seen.append(e["path"])
+        if mode == "raises": raise RuntimeError("scorer surprise")
+        return {e["key"]: {"status": "ok"}}
+    magnet.set_partial_scorer(None if mode == "none" else scorer)
+    broken = [False]
+    def emit(message):
+        if message.startswith("Scoring "):
+            broken[0] = True
+        if broken[0]:
+            raise RuntimeError("persistent notification failure")
+    out = magnet.fetch_magnet_metadata(MAGNET, emit=emit if mode == "emit_raises" else None)
+    analysis = out["analyses"][0]
+    if mode == "none": assert "suite" not in analysis
+    elif mode in ("raises", "emit_raises"): assert analysis["suite"] == dict(status="error", error_kind="internal", message="VideoSuite scoring failed")
+    else: assert analysis["suite"] == {"status": "ok"}
+    assert not Path(lt.workdir).exists()
+    assert all(not Path(p).exists() for p in seen)
+
+
+def _cli_accepts_real_name(name):
+    # Mirrors the checks of videosuite/cli.py `_check_partial` and suite_client.score_partial.
+    import suite_client
+    bad = ((0x00, 0x1F), (0x7F, 0x9F), (0x2028, 0x202E), (0x2066, 0x2069))
+    return (bool(name.strip()) and name == name.strip() and "/" not in name and "\\" not in name
+            and len(name) <= 255 and suite_client._text_problem(name) is None
+            and not any(lo <= ord(c) <= hi for c in name for lo, hi in bad))
+
+
+@pytest.mark.parametrize("raw", [
+    "Show/Movie.2160p.mkv", "a‮vkm.exe", "ok\x7fname.mkv", "c1\x85\x9fname.mkv", "line sep .mkv",
+    "bidi⁦x⁩.mkv", "ctl\x01\x1f.mkv", "back\\slash.mkv", "tab\tname.mkv", " lead.mkv ", "x" * 300 + ".mkv",
+    "‮", "", "Folder/", "dir\\/"])
+def test_suite_real_name_passes_the_cli_rules(raw):
+    name = magnet.suite_real_name(raw)
+    assert _cli_accepts_real_name(name), repr(name)
+    assert name
+
+
+def test_suite_real_name_details():
+    assert magnet.suite_real_name("Show/Movie.2160p.DV.mkv") == "Movie.2160p.DV.mkv"
+    assert magnet.suite_real_name("Movie ук.mkv") == "Movie ук.mkv"
+    assert magnet.suite_real_name("a‮vkm.exe") == "a_vkm.exe"
+    assert magnet.suite_real_name("ok\x7fname.mkv") == "ok_name.mkv"
+    assert magnet.suite_real_name("a\x85b c.mkv") == "a_b_c.mkv"
+    long_name = magnet.suite_real_name("x" * 300 + ".mkv")
+    assert len(long_name) == 255 and long_name.endswith(".mkv") and long_name.startswith("x" * 251)
+    assert magnet.suite_real_name("") == "partial.bin"
+    assert magnet.suite_real_name("   ") == "partial.bin"
+    assert magnet.suite_real_name("Folder/") == "partial.bin"
+    assert magnet.suite_real_name("‮\x00") == "__"
+
+
+def test_hostile_name_is_sanitised_for_the_suite_but_not_for_display(monkeypatch):
+    lt = _FakeLtFull(".mkv")
+    lt.name = "Show/a‮vkm.mkv"
+    monkeypatch.setattr(magnet, "_load_libtorrent", lambda: lt)
+    monkeypatch.setattr(magnet, "_check_temp_disk_space", lambda p: None)
+    monkeypatch.setattr(magnet.time, "sleep", lambda s: None)
+    monkeypatch.setattr(magnet.subprocess, "run", lambda *a, **kw: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(magnet, "_should_middle_sample", lambda *a: False)
+    monkeypatch.setattr(magnet, "tail_is_present", lambda *a: True)
+    monkeypatch.setattr(magnet, "analyze_file", lambda *a, **kw: {"score": 5})
+    names = []
+    def scorer(entries, emit, cancel):
+        names.extend(e["real_name"] for e in entries)
+        return {e["key"]: {"status": "ok"} for e in entries}
+    magnet.set_partial_scorer(scorer)
+    out = magnet.fetch_magnet_metadata(MAGNET)
+    assert names == ["a_vkm.mkv"]
+    assert out["analyses"][0]["file"] == "a‮vkm.mkv"
+
+
+def test_install_and_job_preserve_suite(client, monkeypatch):
+    import magnet_suite
+    main.install_magnet_scorer()
+    assert magnet._partial_scorer is magnet_suite.score_partials
+    analysis = dict(file="movie.mkv", path="movie.mkv", score=5, suite={"status": "ok"})
+    monkeypatch.setattr(main, "run_magnet_job_threaded", lambda *a, **kw: dict(analyses=[analysis], files=[]))
+    monkeypatch.setattr(main, "rank_results", lambda results: results)
+    monkeypatch.setattr(main, "enrich_release", lambda r, **kw: dict(analysis=r))
+    response = client.post("/magnet/", json={"magnet": MAGNET})
+    job = client.get(f"/job/{response.json()['job_id']}").json()
+    assert job["status"] == "done"
+    assert job["results"][0]["suite"] == job["enriched"][0]["analysis"]["suite"] == {"status": "ok"}
+
+
+@pytest.mark.parametrize("installed", [False, True])
+def test_outer_join_includes_suite_stage(monkeypatch, installed):
+    seen = []
+    class Thread:
+        def __init__(self, target, **kwargs): self.target = target
+        def start(self): self.target()
+        def join(self, timeout): seen.append(timeout)
+        def is_alive(self): return False
+    monkeypatch.setattr(magnet.threading, "Thread", Thread)
+    monkeypatch.setattr(magnet, "fetch_magnet_metadata", lambda *a, **kw: {})
+    magnet.set_partial_scorer((lambda *a: {}) if installed else None)
+    magnet.run_magnet_job_threaded(MAGNET, True, lambda m: None, lambda: False)
+    assert seen == [magnet.METADATA_TIMEOUT_S + magnet.PIECE_TIMEOUT_S + magnet.PROBE_MAX_S + 30 + (420 if installed else 0)]
 
 # Every key `session_settings` may emit. These are documented libtorrent
 # settings_pack names; the set is frozen here so a typo (an unknown key makes

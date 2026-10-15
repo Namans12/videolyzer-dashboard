@@ -21,7 +21,7 @@ stderr) and, when the CLI got as far as exiting, ``exit_code``; or ``cancelled``
 tree killed; a job cancelled while queued never starts the CLI). A compare whose CLI reported ``failed > 0`` keeps ``results`` and ends ``error`` /
 ``failed_pairs``.
 
-Concurrency: one ``suite_compare`` at a time (409), at most two ``suite_score``/``suite_rank`` jobs (409). The
+Concurrency: one heavy job (compare or deep-DV score) at a time (409), at most two score/rank jobs (409). The
 route takes the slot atomically and hands it to the runner (``_slot_held=True``); a runner called directly takes
 the slot itself and ends its job ``busy`` if there is none. The slot is released in ``finally``.
 """
@@ -32,11 +32,12 @@ import threading
 import time
 from typing import Annotated, Any, Callable, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints, field_validator, model_validator
 
 from jobs import jobs
+import suite_version
 from path_guard import PathRejected, validate_user_path
 from suite_client import (SuiteArgumentError, SuiteError, SuiteUnavailable, _check_dir, _check_fs, _check_lang,
                           _check_name, _check_weight, get_suite_client)
@@ -50,6 +51,7 @@ DEVICES_TOO_OLD_DETAIL = ("VideoSuite does not support 'devices'; reinstall the 
 UNAVAILABLE_DETAIL = "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"
 COMPARE_BUSY_DETAIL = "a comparison is already running"
 SCORE_RANK_BUSY_DETAIL = "too many suite jobs are running"
+HEAVY_TEXT = {"compare": "a comparison is already running", "deep_dv": "a deep Dolby Vision scan is already running"}
 
 MAX_PATHS = 50
 MAX_SCORE_RANK_JOBS = 2
@@ -68,40 +70,49 @@ _devices_cache: "Optional[tuple[float, dict]]" = None
 
 
 class _Slots:
-    """One compare at a time, ``MAX_SCORE_RANK_JOBS`` score/rank jobs; check-and-take is atomic."""
+    """One heavy job, ``MAX_SCORE_RANK_JOBS`` score/rank jobs; check-and-take is atomic."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._compare = False
+        self._heavy: Optional[str] = None
         self._score_rank = 0
 
     def acquire(self, slot: str) -> bool:
+        return self.try_acquire(slot) is None
+
+    def try_acquire(self, slot: str) -> Optional[str]:
         with self._lock:
+            if slot != "compare" and self._score_rank >= MAX_SCORE_RANK_JOBS:
+                return SCORE_RANK_BUSY_DETAIL
+            if slot in ("compare", "score_rank+deep_dv") and self._heavy is not None:
+                if slot == "compare" and self._heavy == "compare":
+                    return COMPARE_BUSY_DETAIL
+                return (f"{HEAVY_TEXT[self._heavy]}; only one heavy job "
+                        "(a picture comparison or a deep Dolby Vision scan) runs at a time")
             if slot == "compare":
-                if self._compare:
-                    return False
-                self._compare = True
-                return True
-            if self._score_rank >= MAX_SCORE_RANK_JOBS:
-                return False
-            self._score_rank += 1
-            return True
+                self._heavy = "compare"
+            else:
+                self._score_rank += 1
+                if slot == "score_rank+deep_dv":
+                    self._heavy = "deep_dv"
+            return None
 
     def release(self, slot: str) -> None:
         with self._lock:
             if slot == "compare":
-                self._compare = False
+                self._heavy = None
             else:
                 self._score_rank = max(0, self._score_rank - 1)
+                if slot == "score_rank+deep_dv":
+                    self._heavy = None
 
     def reset(self) -> None:
         with self._lock:
-            self._compare = False
+            self._heavy = None
             self._score_rank = 0
 
 
 _slots = _Slots()
-_BUSY = {"compare": COMPARE_BUSY_DETAIL, "score_rank": SCORE_RANK_BUSY_DETAIL}
 
 
 def reset_state() -> None:
@@ -231,9 +242,11 @@ def _run_slotted(job_id: str, slot: str, slot_held: bool, body: Callable[[], Non
     """Run ``body`` holding ``slot`` and map every failure to an honest job end.
 
     A job that was cancelled while it was still queued never starts the CLI."""
-    if not slot_held and not _slots.acquire(slot):
-        _fail(job_id, _BUSY[slot], "busy")
-        return
+    if not slot_held:
+        detail = _slots.try_acquire(slot)
+        if detail is not None:
+            _fail(job_id, detail, "busy")
+            return
     try:
         if jobs.is_cancelled(job_id):
             _end_cancelled(job_id)
@@ -264,7 +277,7 @@ def run_score_job(job_id: str, client: Any, paths: List[str], *, device: Optiona
             return
         _done(job_id, doc)
 
-    _run_slotted(job_id, "score_rank", _slot_held, body)
+    _run_slotted(job_id, "score_rank+deep_dv" if deep_dv else "score_rank", _slot_held, body)
 
 
 def run_rank_job(job_id: str, client: Any, paths: List[str], reports_dir: str, *, device: Optional[str] = None,
@@ -325,9 +338,19 @@ def install(app: FastAPI) -> None:
     app.add_exception_handler(SuiteUnavailable, _suite_unavailable)
 
 
+@router.get("/version")
+def suite_version_status(request: Request, refresh: bool = False) -> Any:
+    # Discovery happens inside the route so absence is a 200 handshake result.
+    factory = request.app.dependency_overrides.get(get_suite_client, get_suite_client)
+    return suite_version.ensure(suite_version._discover(factory), refresh=refresh)
+
+
 @router.get("/devices")
 def suite_devices(client: Any = Depends(get_suite_client)) -> Any:
     global _devices_cache
+    version = suite_version.ensure(client)
+    if version["status"] == "too_old":
+        raise HTTPException(status_code=502, detail=version["message"])
     with _cache_lock:
         cached = _devices_cache
         if cached is not None and _clock() - cached[0] < DEVICES_CACHE_SECONDS:
@@ -350,8 +373,9 @@ def suite_devices(client: Any = Depends(get_suite_client)) -> Any:
 
 
 def _take_slot(slot: str) -> None:
-    if not _slots.acquire(slot):
-        raise HTTPException(status_code=409, detail=_BUSY[slot])
+    detail = _slots.try_acquire(slot)
+    if detail is not None:
+        raise HTTPException(status_code=409, detail=detail)
 
 
 def _start(slot: str, kind: str, total: int, background_tasks: BackgroundTasks, runner: Callable[..., None],
@@ -369,7 +393,8 @@ def _start(slot: str, kind: str, total: int, background_tasks: BackgroundTasks, 
 @router.post("/score")
 def suite_score(body: ScoreRequest, background_tasks: BackgroundTasks, client: Any = Depends(get_suite_client)):
     paths = _guarded_paths(body.paths)
-    return _start("score_rank", "suite_score", len(paths), background_tasks, run_score_job, client, paths,
+    return _start("score_rank+deep_dv" if body.deep_dv else "score_rank", "suite_score", len(paths),
+                  background_tasks, run_score_job, client, paths,
                   device=body.device, player=body.player, fs=body.fs, lang=body.lang, deep_dv=body.deep_dv)
 
 

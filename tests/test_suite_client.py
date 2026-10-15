@@ -21,6 +21,118 @@ from suite_client import (SuiteArgumentError, SuiteClient, SuiteError, SuiteUnav
 FIX = Path(__file__).parent / "fixtures" / "suite"
 
 
+def test_version_happy_path_and_argv():
+    pop = FakePopen(ok("version.json"))
+    doc = make_client(pop).version()
+    assert doc["schema"] == "videosuite-version/1"
+    assert pop.argv == ["PY", "-m", "videosuite", "version", "--json"]
+    assert make_client(FakePopen())._timeout_devices() == suite_client.DEVICES_TIMEOUT_S
+
+
+@pytest.mark.parametrize("name,command", [("devices", "devices"), ("version", "version"),
+    ("score", "score"), ("score_partial", "score"), ("rank", "rank"), ("compare", "compare")])
+def test_regenerated_fixtures_and_unknown_keys(name, command):
+    doc = fixture_doc(name + ".json")
+    assert doc["tool_version"] == "0.4.0"
+    doc["future_field"] = {"unknown": [True, None]}
+    parsed = suite_client.parse_document(command, json.dumps(doc).encode())
+    assert parsed["future_field"] == doc["future_field"]
+
+
+# '*' selects the first real mapping entry; indexes select a real fixture row.
+_DEEP_CASES = [
+    ("version", "schemas", []), ("version", "capabilities", [1]),
+    ("version", "capabilities", {}), ("version", "facts_version", True),
+    ("version", "facts_version", 1.5), ("version", "engine_tag", 1),
+    ("score", "records.0", []), ("score", "records.0.id", 1),
+    ("score", "records.0.source", []), ("score", "records.0.source.path", 1),
+    ("score", "records.0.source.partial", 1), ("score", "records.0.playback", []),
+    ("score", "records.0.playback.*", []),
+    ("score", "records.0.playback.*.verdict", "UNKNOWN"),
+    ("score", "records.0.playback.*.score", True),
+    ("score", "records.0.playback.*.score_range", [1]),
+    ("score", "records.0.playback.*.score_range", [1, True]),
+    ("score", "records.0.playback.*.evidence", 1),
+    ("score", "records.0.playback.*.effective_hdr", None),
+    ("score", "records.0.playback.*.effective_audio", 1),
+    ("score", "records.0.playback.*.issues", {}),
+    ("score", "records.0.playback.*.issues", [1]),
+    ("score", "records.0.playback.*.issues", [{"severity": 1, "message": "ok"}]),
+    ("score", "records.0.playback.*.issues", [{"severity": "warn", "message": 1}]),
+    ("score", "records.0.playback.*.hints", {}),
+    ("score", "records.0.playback.*.hints", [1]),
+    ("score", "records.0.best_player", []),
+    ("score", "records.0.best_player", {"device": []}),
+    ("score", "records.0.best_player", {"device": {"player": 1, "reason": "ok"}}),
+    ("score", "records.0.best_player", {"device": {"player": "p", "reason": 1}}),
+    ("rank", "quality.0", []), ("rank", "quality.0.id", 1),
+    ("rank", "quality.0.label", 1), ("rank", "quality.0.rank", True),
+    ("rank", "quality.0.games", True), ("rank", "quality.0.quality_score", True),
+    ("rank", "devices.*", []), ("rank", "devices.*.ranking", {}),
+    ("rank", "devices.*.will_not_play", {}), ("rank", "devices.*.not_compared", {}),
+    ("rank", "devices.*.crossing_note", 1), ("rank", "devices.*.ranking.0", []),
+    ("rank", "devices.*.ranking.0.label", 1), ("rank", "devices.*.ranking.0.device_rank", True),
+    ("rank", "devices.*.ranking.0.verdict", "UNKNOWN"),
+    ("rank", "devices.*.ranking.0.playback_score", True),
+    ("rank", "devices.*.ranking.0.quality_score", True),
+    ("rank", "devices.*.ranking.0.why", 1), ("rank", "devices.*.ranking.0.reasons", [1]),
+    ("rank", "stale_reports", {}), ("rank", "legacy_reports", {}),
+    ("rank", "head_to_head_conflicts", {}), ("devices", "devices.0.label", 1),
+    ("devices", "devices.0.players.0.label", 1), ("devices", "devices.0.players.0.default", 1),
+    ("devices", "devices.0.players.0.rule_counts", []),
+    ("devices", "devices.0.players.0.rule_counts", {"rule": True}),
+]
+_DEEP_CASES += [("facts", path, value) for command, path, value in _DEEP_CASES
+                if command == "score" and (path in ("records.0", "records.0.id") or ".source" in path)]
+
+
+@pytest.mark.parametrize("command,path,value", _DEEP_CASES)
+def test_deep_contract_rejects_invalid_path(command, path, value):
+    doc = fixture_doc(("score" if command == "facts" else command) + ".json")
+    doc["schema"] = f"videosuite-{command}/1"
+    target = doc
+    resolved = ""
+    parts = path.split(".")
+    for part in parts[:-1]:
+        key = next(iter(target)) if part == "*" else int(part) if isinstance(target, list) else part
+        target = target[key]
+        resolved += f"[{key}]" if isinstance(key, int) else ("." if resolved else "") + str(key)
+    last = parts[-1]
+    key = next(iter(target)) if last == "*" else int(last) if isinstance(target, list) else last
+    target[key] = value
+    resolved += f"[{key}]" if isinstance(key, int) else ("." if resolved else "") + str(key)
+    error = _contract(lambda: suite_client.parse_document(command, json.dumps(doc).encode()))
+    assert resolved in str(error)
+
+
+def test_optional_nulls_numbers_and_nested_unknown_keys_are_accepted():
+    version = fixture_doc("version.json")
+    version["engine_tag"] = None
+    suite_client.parse_document("version", json.dumps(version).encode())
+    del version["engine_tag"]
+    suite_client.parse_document("version", json.dumps(version).encode())
+    doc = fixture_doc("score.json")
+    record = doc["records"][0]
+    record["source"]["partial"] = False
+    record["future"] = []
+    for playback in record["playback"].values():
+        playback.update(score=1, score_range=[1, 2.5], effective_audio=None, future={})
+    record["best_player"] = {"device": {"player": "p", "reason": "r", "future": 1}}
+    suite_client.parse_document("score", json.dumps(doc).encode())
+    del record["best_player"]
+    del record["source"]["partial"]
+    suite_client.parse_document("score", json.dumps(doc).encode())
+    doc = fixture_doc("rank.json")
+    doc["quality"][0]["quality_score"] = None
+    for device in doc["devices"].values():
+        device["crossing_note"] = None
+        device["ranking"][0].update(quality_score=None, why=None)
+    suite_client.parse_document("rank", json.dumps(doc).encode())
+    for key in ("stale_reports", "legacy_reports", "head_to_head_conflicts"):
+        doc.pop(key, None)
+    suite_client.parse_document("rank", json.dumps(doc).encode())
+
+
 def fixture_bytes(name: str) -> bytes:
     return (FIX / name).read_bytes()
 
@@ -304,7 +416,8 @@ def test_json_that_is_not_an_object_is_contract_error():
 
 
 def test_nan_is_contract_error():
-    doc = fixture_bytes("devices.json").replace(b'"tool_version": "0.2.0"', b'"tool_version": "0.2.0", "x": NaN')
+    doc = fixture_bytes("devices.json").replace(b'"schema":', b'"x": NaN, "schema":', 1)
+    assert b"NaN" in doc
     _contract(lambda: make_client(FakePopen(FakeProc(stdout=doc))).devices())
 
 
@@ -651,10 +764,10 @@ def test_compare_without_cancel_flag_does_not_kill(tmp_path):
     assert out["failed"] == 0 and killed == []
 
 
-def test_default_killer_runs_taskkill_tree_without_a_shell(monkeypatch):
+def test_default_killer_runs_taskkill_tree_without_a_shell(monkeypatch, request):
     calls = []
     monkeypatch.setattr(suite_client.subprocess, "run", lambda argv, **kw: calls.append((argv, kw)))
-    suite_client.taskkill_tree(1234)
+    request.getfixturevalue("guard_taskkill")(1234)
     assert calls[0][0] == ["taskkill", "/F", "/T", "/PID", "1234"]
     assert calls[0][1].get("shell", False) is False
 
@@ -908,3 +1021,429 @@ def test_list_dir_is_removed_after_a_score_timeout(tmp_path):
 def test_docstring_states_the_caller_contract():
     doc = suite_client.__doc__
     assert "is None" in doc and "failed_pairs" in doc and "SuiteUnavailable" in doc and 'kind="unavailable"' in doc
+
+
+@pytest.mark.parametrize("name", ["Tom & Jerry (2021) 100%.mkv", "-Тест ^%.mkv"])
+def test_score_partial_argv_fixture_and_timeout(name, monkeypatch):
+    pop = FakePopen(ok("score_partial.json"))
+    client = make_client(pop)
+    original = client._with_list
+    timeouts = []
+    def capture(command, paths, extra, timeout, **kwargs):
+        timeouts.append(timeout)
+        return original(command, paths, extra, timeout, **kwargs)
+    monkeypatch.setattr(client, "_with_list", capture)
+    doc = client.score_partial("C:\\partial.mkv", real_size=30000000000, real_name=name)
+    assert doc["records"][0]["source"]["partial"] is True
+    assert timeouts == [105]
+    assert "--list" in pop.argv and "C:\\partial.mkv" not in pop.argv
+    assert "--real-size=30000000000" in pop.argv
+    assert f"--real-name={name}" in pop.argv and "--coverage=head" in pop.argv
+    assert pop.calls[0][1].get("shell", False) is False
+
+
+@pytest.mark.parametrize("key,value", [("real_size", x) for x in [0, -1, True, "5", 2**51]] +
+                         [("real_name", x) for x in ["", "a/b.mkv", "a\\b.mkv", "x\n", "x\u2028y", "x"*256]] +
+                         [("coverage", "tail"), ("path", "x\n")])
+def test_score_partial_invalid_before_process(key, value):
+    kwargs = dict(path="C:\\partial.mkv", real_size=100, real_name="movie.mkv")
+    kwargs[key] = value
+    with pytest.raises(SuiteArgumentError):
+        make_client(_no_call).score_partial(**kwargs)
+
+
+@pytest.mark.parametrize("killer_kind", ["injected", "default_fake"])
+def test_partial_stage_timeout_and_all_cleanup_share_five_seconds(monkeypatch, killer_kind):
+    import magnet_suite
+    now = [0.0]
+    def clock(): return now[0]
+    class SlowReader:
+        oversize = False
+        data = fixture_bytes("score_partial.json")
+        text = ""
+        def __init__(self, *args): pass
+        def start(self): pass
+        def join(self, timeout): now[0] += timeout
+    monkeypatch.setattr(suite_client, "_StdoutReader", SlowReader)
+    monkeypatch.setattr(suite_client, "_StderrReader", SlowReader)
+    class Process(FakeProc):
+        def wait(self, timeout=None):
+            if self.hang:
+                now[0] += timeout
+                raise subprocess.TimeoutExpired("fake", timeout)
+            return self.returncode
+        def kill(self): pass
+    procs = [Process(stdout=fixture_bytes("score_partial.json")) for _ in range(3)] + [Process(hang=True)]
+    pop = FakePopen(*procs)
+    killed = []
+    def killer(pid):
+        killed.append(pid)
+        now[0] += 2.0
+    def fake_taskkill(pid, *, timeout):
+        assert 0 < timeout <= 2.0
+        killed.append(pid)
+        now[0] += timeout
+    monkeypatch.setattr(suite_client, "taskkill_tree", fake_taskkill)
+    client = (make_client(pop, clock=clock, killer=killer) if killer_kind == "injected" else
+              SuiteClient(argv_prefix=["PY", "-m", "videosuite"], popen=pop, clock=clock))
+    original = client.score_partial
+    count = [0]
+    def partial(*args, **kwargs):
+        count[0] += 1
+        if count[0] < 4:
+            # Three successful files approach the stage budget, including their cleanup.
+            result = original(*args, **kwargs)
+            now[0] = count[0] * (299.9 / 3)
+            return result
+        return original(*args, **kwargs)
+    client.score_partial = partial
+    monkeypatch.setattr(magnet_suite.suite_version, "ensure", lambda c: {"capabilities": ["score_partial"]})
+    entries = [dict(key=str(i), path="C:\\probe.mkv", real_size=100, real_name="movie.mkv", coverage="head") for i in range(4)]
+    out = magnet_suite.score_partials(entries, lambda m: None, lambda: False, client_factory=lambda: client, clock=clock)
+    assert out["3"]["error_kind"] == "timeout"
+    assert killed == [4242]
+    assert now[0] <= 409.9
+    assert not pop.list_dir.exists()
+
+
+@pytest.mark.parametrize("args,expected", [((8, "accurate", 4), 252600),
+    ((8, "fast", 4), 51000), ((2, "fast", 4), 21600), ((3, "accurate", 4), 27600),
+    ((20, "fast", 4), 51000), ((), 21600), ((8, "unknown", 4), 252600)])
+def test_d4_compare_timeout_scales_with_shortlisted_pairs(args, expected):
+    assert make_client(FakePopen(), environ={})._timeout_compare(*args) == expected
+
+
+@pytest.mark.parametrize("raw", ["90", "0.5", "banana", "0", "-5", "nan", "inf"])
+def test_d4_compare_timeout_environment_override(raw):
+    client = make_client(FakePopen(), environ={"VIDEOSUITE_COMPARE_TIMEOUT_S": raw})
+    expected = float(raw) if raw in ("90", "0.5") else 252600
+    assert client._timeout_compare(8, "accurate", 4) == expected
+
+
+@pytest.mark.parametrize("mode,top", [("accurate", 3), ("fast", 4)])
+def test_d4_compare_passes_file_count_mode_top_to_timeout(monkeypatch, tmp_path, mode, top):
+    client = make_client(FakePopen(ok("compare.json")))
+    calls = []
+    def timeout(*args):
+        calls.append(args)
+        return 90
+    monkeypatch.setattr(client, "_timeout_compare", timeout)
+    paths = [str(tmp_path / f"{i}.mkv") for i in range(8)]
+    client.compare(paths, str(tmp_path), mode, top)
+    assert calls == [(8, mode, top)]
+
+
+def test_partial_cleanup_does_not_block_on_hung_killer_or_pipe_close(monkeypatch):
+    import time
+    release = threading.Event()
+    entered = threading.Event()
+    class Pipe(io.BytesIO):
+        def close(self): release.wait(2)
+    class Reader:
+        oversize = False
+        data = b""
+        text = ""
+        def __init__(self, *args): pass
+        def start(self): pass
+        def join(self, timeout): time.sleep(timeout)
+    monkeypatch.setattr(suite_client, "_StdoutReader", Reader)
+    monkeypatch.setattr(suite_client, "_StderrReader", Reader)
+    proc = FakeProc(hang=True)
+    proc.stdout, proc.stderr = Pipe(), Pipe()
+    def killer(pid):
+        entered.set()
+        release.wait(2)
+    client = make_client(FakePopen(proc), killer=killer)
+    original = client._with_list
+    def shortened(command, paths, extra, timeout, **kwargs):
+        assert timeout == 105 and kwargs["cleanup_budget"] == 5.0
+        return original(command, paths, extra, 0.01, **dict(kwargs, cleanup_budget=0.35))
+    monkeypatch.setattr(client, "_with_list", shortened)
+    start = time.monotonic()
+    try:
+        with pytest.raises(SuiteError, match="timed out"):
+            client.score_partial("C:\\probe.mkv", real_size=100, real_name="movie.mkv")
+        assert entered.is_set()
+        assert time.monotonic() - start < 0.6
+    finally:
+        release.set()
+
+
+def test_d5_fake_factory_uses_null_job():
+    import proc_guard
+    assert make_client(FakePopen())._job is proc_guard.NULL_JOB
+
+
+@pytest.mark.parametrize("raises", [False, True])
+@pytest.mark.parametrize("assignment_raises", [False, True])
+def test_d5_assignment_and_live_registry(raises, assignment_raises):
+    assigned = []
+    class Job:
+        def assign(self, proc):
+            assigned.append(proc)
+            if assignment_raises:
+                raise RuntimeError("job unavailable")
+            return True
+    class Proc(FakeProc):
+        def wait(self, timeout=None):
+            assert self in suite_client.live_processes()
+            if raises:
+                raise RuntimeError("wait failed")
+            return super().wait(timeout)
+    proc = Proc(stdout=fixture_bytes("devices.json"))
+    client = make_client(FakePopen(proc), job=Job())
+    if raises:
+        with pytest.raises(RuntimeError, match="wait failed"):
+            client.devices()
+    else:
+        client.devices()
+    assert assigned == [proc]
+    assert proc not in suite_client.live_processes()
+
+
+@pytest.mark.parametrize("default", [False, True])
+def test_d5_shutdown_killer_resolved_at_call_time(monkeypatch, default):
+    proc = FakeProc()
+    killed, waited = [], []
+    proc.wait = waited.append
+    with suite_client._LIVE_LOCK:
+        suite_client._LIVE.add(proc)
+    monkeypatch.setattr(suite_client, "taskkill_tree", killed.append)
+    assert suite_client.kill_live_processes(**({} if default else {"killer": killed.append})) == 1
+    assert killed == [proc.pid] and waited == [5]
+
+
+def test_d5_lifespan_stops_live_processes(monkeypatch, caplog):
+    import main
+    from fastapi.testclient import TestClient
+    calls = []
+    monkeypatch.setattr(suite_client, "kill_live_processes", lambda: calls.append(True) or 1)
+    with caplog.at_level("INFO"), TestClient(main.app, base_url="http://localhost"):
+        pass
+    assert calls == [True]
+    assert "stopped 1 VideoSuite process(es) on shutdown" in caplog.text
+
+
+def test_d5_reset_clears_registry_and_default_kill_is_guarded(clean_state):
+    proc = FakeProc()
+    with suite_client._LIVE_LOCK:
+        suite_client._LIVE.add(proc)
+    with pytest.raises(pytest.fail.Exception, match="real taskkill called in a test"):
+        suite_client.kill_live_processes()
+    clean_state()
+    assert suite_client.live_processes() == []
+
+
+def test_d5_shutdown_swallows_process_exceptions():
+    proc = FakeProc()
+    waited = []
+    def wait(timeout):
+        waited.append(timeout)
+        raise RuntimeError("wait failed")
+    def killer(pid):
+        raise RuntimeError("kill failed")
+    proc.wait = wait
+    with suite_client._LIVE_LOCK:
+        suite_client._LIVE.add(proc)
+    assert suite_client.kill_live_processes(killer) == 1
+    assert waited == [5]
+
+
+def test_d5_real_factory_selects_default_job(monkeypatch):
+    import proc_guard
+    marker = object()
+    monkeypatch.setattr(proc_guard, "default_job", lambda: marker)
+    client = SuiteClient(argv_prefix=["PY", "-m", "videosuite"])
+    assert client._job is marker
+
+
+@pytest.mark.parametrize("failed_reader", ["stdout", "stderr"])
+@pytest.mark.parametrize("job_kind", ["null", "failed_assignment"])
+@pytest.mark.parametrize("partial", [False, True])
+def test_d5_reader_start_failure_cleans_before_unregister(monkeypatch, failed_reader, job_kind, partial):
+    import proc_guard
+    now = [0.0]
+    calls = []
+    error = RuntimeError("cannot start new thread")
+    class Proc(FakeProc):
+        def wait(self, timeout=None):
+            assert self in suite_client.live_processes()
+            calls.append(("wait", timeout))
+            now[0] += 0.5
+            return super().wait(timeout)
+    proc = Proc(hang=True)
+    class Pipe(io.BytesIO):
+        def close(self):
+            assert proc in suite_client.live_processes()
+            calls.append(("close", None))
+            super().close()
+    proc.stdout, proc.stderr = Pipe(), Pipe()
+    class Reader:
+        def __init__(self, stream, *args):
+            self.name = "stdout" if stream is proc.stdout else "stderr"
+            self.started = False
+        def start(self):
+            if self.name == failed_reader:
+                raise error
+            self.started = True
+        def join(self, timeout):
+            if not self.started:
+                raise RuntimeError("cannot join thread before it is started")
+            calls.append(("join", timeout))
+            now[0] += min(timeout, 3.0)
+    monkeypatch.setattr(suite_client, "_StdoutReader", Reader)
+    monkeypatch.setattr(suite_client, "_StderrReader", Reader)
+    class FailedJob:
+        def assign(self, child):
+            assert child is proc
+            return False
+    def killer(pid):
+        assert proc in suite_client.live_processes()
+        calls.append(("kill", pid))
+        now[0] += 2.0
+        proc.die(1)
+    job = proc_guard.NULL_JOB if job_kind == "null" else FailedJob()
+    pop = FakePopen(proc)
+    client = make_client(pop, killer=killer, job=job, clock=lambda: now[0])
+    with pytest.raises(RuntimeError) as caught:
+        if partial:
+            client.score_partial("C:\\probe.mkv", real_size=100, real_name="movie.mkv")
+        else:
+            client.devices()
+    assert caught.value is error
+    assert ("kill", proc.pid) in calls
+    assert any(action == "wait" for action, _ in calls)
+    assert proc.stdout.closed and proc.stderr.closed
+    assert proc not in suite_client.live_processes()
+    if partial:
+        assert now[0] <= 5.0
+        assert not pop.list_dir.exists()
+
+
+@pytest.mark.parametrize("failed_reader", ["stdout", "stderr"])
+@pytest.mark.parametrize("default_killer", [False, True])
+@pytest.mark.parametrize("partial", [False, True])
+@pytest.mark.parametrize("assignment_fails", [False, True])
+def test_d5_global_thread_exhaustion_uses_thread_free_tree_cleanup(
+        monkeypatch, guard_taskkill, failed_reader, default_killer, partial, assignment_fails):
+    now = [0.0]
+    original = RuntimeError("cannot start new thread")
+    killed, waited, closed = [], [], []
+    class Proc(FakeProc):
+        def wait(self, timeout=None):
+            assert self in suite_client.live_processes()
+            waited.append(timeout)
+            now[0] += min(timeout, 0.5)
+            return super().wait(timeout)
+    proc = Proc(hang=True)
+    class Pipe(io.BytesIO):
+        def close(self):
+            assert proc in suite_client.live_processes()
+            closed.append(True)
+            super().close()
+    proc.stdout, proc.stderr = Pipe(), Pipe()
+    def fail_start(thread):
+        # Let the stdout reader finish synchronously for the stderr-start case;
+        # every other start, including all cleanup workers, fails globally.
+        if failed_reader == "stderr" and thread.name == "suite-stdout":
+            thread.run()
+            return
+        raise original
+    monkeypatch.setattr(threading.Thread, "start", fail_start)
+    def tree_killer(pid, *, timeout=None):
+        assert proc in suite_client.live_processes()
+        if partial and default_killer:
+            assert 0 < timeout <= 2.0
+        killed.append(pid)
+        now[0] += 1.0
+        proc.die(1)
+    if default_killer:
+        def fake_run(argv, **kwargs):
+            assert argv == ["taskkill", "/F", "/T", "/PID", str(proc.pid)]
+            assert kwargs["shell"] is False
+            tree_killer(proc.pid, timeout=kwargs["timeout"])
+        # Exercise the actual default command/timeout without launching taskkill.
+        monkeypatch.setattr(suite_client.subprocess, "run", fake_run)
+        monkeypatch.setattr(suite_client, "taskkill_tree", guard_taskkill)
+    # Injected path retains the autouse fail guard on real/default taskkill.
+    class FailedJob:
+        def assign(self, child):
+            return False
+    pop = FakePopen(proc)
+    kwargs = {} if default_killer else {"killer": tree_killer}
+    client = SuiteClient(argv_prefix=["PY", "-m", "videosuite"], popen=pop,
+                         clock=lambda: now[0], job=FailedJob() if assignment_fails else None, **kwargs)
+    with pytest.raises(RuntimeError) as caught:
+        if partial:
+            client.score_partial("C:\\probe.mkv", real_size=100, real_name="movie.mkv")
+        else:
+            client.devices()
+    assert caught.value is original
+    assert killed == [proc.pid] and waited
+    assert proc.stdout.closed and proc.stderr.closed and len(closed) == 2
+    assert proc not in suite_client.live_processes()
+    if partial:
+        assert now[0] <= 5.0 and not pop.list_dir.exists()
+
+
+def test_d5_exhausted_cleanup_does_not_close_active_pipe_inline(monkeypatch, guard_taskkill):
+    import time
+    read_started = threading.Event()
+    release_writer = threading.Event()
+    r_fd, w_fd = os.pipe()
+    class Pipe(io.BufferedReader):
+        def read(self, size=-1):
+            read_started.set()
+            return super().read(size)
+    stdout = Pipe(os.fdopen(r_fd, "rb", buffering=0))
+    writer = os.fdopen(w_fd, "wb", buffering=0)
+    def safety_release():
+        release_writer.wait(0.8)
+        writer.close()
+    # Prestarted helper guarantees teardown even when the regression blocks.
+    releaser = threading.Thread(target=safety_release, daemon=True)
+    releaser.start()
+    original_start = threading.Thread.start
+    original_error = RuntimeError("cannot start new thread")
+    readers = []
+    def exhausted(thread):
+        if thread.name == "suite-stdout":
+            readers.append(thread)
+            original_start(thread)
+            assert read_started.wait(1)
+            time.sleep(0.02)  # reader enters the real blocking buffered read
+            return
+        raise original_error
+    monkeypatch.setattr(threading.Thread, "start", exhausted)
+    calls = []
+    def taskkill_timeout(argv, **kwargs):
+        calls.append(kwargs["timeout"])
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+    monkeypatch.setattr(suite_client.subprocess, "run", taskkill_timeout)
+    monkeypatch.setattr(suite_client, "taskkill_tree", guard_taskkill)
+    proc = FakeProc(hang=True)
+    proc.stdout = stdout
+    pop = FakePopen(proc)
+    client = SuiteClient(argv_prefix=["PY", "-m", "videosuite"], popen=pop)
+    original_with_list = client._with_list
+    def shortened(command, paths, extra, timeout, **kwargs):
+        return original_with_list(command, paths, extra, timeout, **dict(kwargs, cleanup_budget=0.35))
+    monkeypatch.setattr(client, "_with_list", shortened)
+    started = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError) as caught:
+            client.score_partial("C:\\probe.mkv", real_size=100, real_name="movie.mkv")
+        elapsed = time.monotonic() - started
+        assert caught.value is original_error
+        assert calls and 0 < calls[0] <= 0.101
+        assert elapsed < 0.5
+        assert proc.stderr.closed
+        assert not stdout.closed and readers[0].is_alive()
+        assert proc not in suite_client.live_processes()
+        assert not pop.list_dir.exists()
+    finally:
+        release_writer.set()
+        releaser.join(2)
+        for reader in readers:
+            reader.join(2)
+        stdout.close()

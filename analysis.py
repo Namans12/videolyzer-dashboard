@@ -37,6 +37,7 @@ BRAVIA_8_II: dict[str, Any] = {
         "4":    ("Limited", "Older dual-layer DV — unreliable"),
         "None": ("No",      "No Dolby Vision detected"),
     },
+    # FROZEN legacy scoring (owner ruling 2026-10-11): do not tune; retired in Plan 3 once magnet files are scored by VideoSuite.
     "dv_tv_score": {
         "8.1": 35, "8.4": 32, "5": 30, "8.x": 27, "8.2": 25,
         "7-MEL": 30, "7-FEL": 22, "7": 26,

@@ -23,6 +23,21 @@ import main
 
 
 @pytest.fixture(autouse=True)
+def guard_taskkill(monkeypatch):
+    import suite_client
+    original = suite_client.taskkill_tree
+    def forbidden(*args, **kwargs):
+        pytest.fail("real taskkill called in a test")
+    monkeypatch.setattr(suite_client, "taskkill_tree", forbidden)
+    return original
+
+
+@pytest.fixture(autouse=True)
+def disable_suite_startup_check(monkeypatch):
+    monkeypatch.setenv("VIDEOLYZER_SUITE_STARTUP_CHECK", "0")
+
+
+@pytest.fixture(autouse=True)
 def isolated_uploads(tmp_path, monkeypatch):
     uploads = tmp_path / "uploads"
     uploads.mkdir()
@@ -40,15 +55,20 @@ def clean_state():
     import magnet
     import suite_client
     import suite_routes
+    import suite_version
 
     def reset() -> None:
+        with suite_client._LIVE_LOCK:
+            suite_client._LIVE.clear()
         main._jobs.clear()
         magnet.port_allocator.reset()
+        magnet.set_partial_scorer(None)
         suite_routes.reset_state()          # /suite/devices cache and job slots
         suite_client.reset_suite_client()
+        suite_version.reset()
 
     reset()
-    yield
+    yield reset
     reset()
     main.app.dependency_overrides.clear()
 

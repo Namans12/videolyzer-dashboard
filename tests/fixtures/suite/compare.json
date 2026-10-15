@@ -1,22 +1,39 @@
 {
  "schema": "videosuite-compare/1",
- "tool_version": "0.2.0",
+ "tool_version": "0.4.0",
  "mode": "fast",
  "estimate": {
-  "pairs": 1,
-  "minutes": 4
+  "pairs": 3,
+  "minutes": 12
  },
  "shortlist": [
   "clip_a_crf18.mkv",
-  "clip_b_crf34.mkv"
+  "clip_b_crf34.mkv",
+  "clip_c_crf26.mp4"
  ],
  "dropped": [],
  "pairs": [
   {
    "a": "clip_a_crf18.mkv",
    "b": "clip_b_crf34.mkv",
-   "report": "C:\\fixtures\\suite\\clip_a_crf18_vs_clip_b_crf34_fast_3e0d8f7455.json"
+   "report": "C:\\fixtures\\suite\\reports\\clip_a_crf18_vs_clip_b_crf34_fast_58ff664042.json"
+  },
+  {
+   "a": "clip_a_crf18.mkv",
+   "b": "clip_c_crf26.mp4",
+   "report": "C:\\fixtures\\suite\\reports\\clip_a_crf18_vs_clip_c_crf26_fast_525ac748ef.json"
+  },
+  {
+   "a": "clip_b_crf34.mkv",
+   "b": "clip_c_crf26.mp4",
+   "report": "C:\\fixtures\\suite\\reports\\clip_b_crf34_vs_clip_c_crf26_fast_30f7875387.json"
   }
  ],
- "failed": 0
+ "failed": 0,
+ "settings": {
+  "path": "C:\\fixtures\\suite\\no_settings.json",
+  "loaded": false,
+  "errors": [],
+  "applied_count": 0
+ }
 }

@@ -25,6 +25,10 @@ from series_compare import is_series_comparison, build_series_comparison
 from request_guard import RequestGuard
 from jobs import TERMINAL, jobs
 import suite_routes
+import suite_version
+import suite_client
+import magnet
+import magnet_suite
 from path_guard import (
     PathRejected, iter_safe_video_files, make_file_filter, validate_user_path,
 )
@@ -92,7 +96,12 @@ async def lifespan(app: FastAPI):
         except OSError:
             pass
     logger.info("Upload dir cleaned on startup.")
+    if os.environ.get(suite_version.ENV_STARTUP_CHECK, "1") != "0":
+        suite_version.start_background_check()
     yield
+    n = suite_client.kill_live_processes()
+    if n:
+        logger.info("stopped %d VideoSuite process(es) on shutdown", n)
 
 
 app = FastAPI(title="Video Metadata Analyzer", lifespan=lifespan)
@@ -124,6 +133,13 @@ app.add_middleware(
 
 # /suite/... (devices, score, rank, compare): the installed VideoSuite as guarded jobs.
 suite_routes.install(app)
+
+
+def install_magnet_scorer() -> None:
+    magnet.set_partial_scorer(magnet_suite.score_partials)
+
+
+install_magnet_scorer()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

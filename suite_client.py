@@ -54,6 +54,31 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence
 
+import proc_guard
+
+_LIVE: set[Any] = set()
+_LIVE_LOCK = threading.Lock()
+
+
+def live_processes() -> List[Any]:
+    with _LIVE_LOCK:
+        return list(_LIVE)
+
+
+def kill_live_processes(killer: Optional[Callable[[int], None]] = None) -> int:
+    killer = killer or taskkill_tree
+    processes = live_processes()
+    for proc in processes:
+        try:
+            killer(proc.pid)
+        except Exception:
+            pass
+        try:
+            proc.wait(5)
+        except Exception:
+            pass
+    return len(processes)
+
 DEFAULT_ENV_PATH = Path(r"D:\VideoComparatorPro\setup\env.path")
 ENV_PYTHON = "VIDEOSUITE_PYTHON"
 ENV_ROOT = "VIDEOSUITE_ROOT"
@@ -69,6 +94,7 @@ _JOIN_SECONDS = 10.0
 DEVICES_TIMEOUT_S = 30
 SCORE_BASE_S, SCORE_PER_FILE_S, DEEP_DV_PER_FILE_S = 60, 45, 900
 COMPARE_TIMEOUT_S = 6 * 3600
+COMPARE_PER_PAIR_S = {"fast": 1800, "accurate": 9000}
 
 ERROR_KINDS = ("usage", "no_files", "ffprobe_missing", "failed_pairs", "contract", "timeout", "failed", "unavailable")
 _EXIT_KIND = {2: "usage", 3: "no_files", 4: "ffprobe_missing"}
@@ -188,11 +214,11 @@ def resolve_suite(environ: Optional[Mapping[str, str]] = None,
     return [py, "-m", "videosuite"], _build_env(environ, root, kind, prefix)
 
 
-def taskkill_tree(pid: int) -> None:
+def taskkill_tree(pid: int, *, timeout: float = 15) -> None:
     """Kill a process and all its children. Best effort: failures are swallowed (the caller then tries ``proc.kill``)."""
     try:
         subprocess.run(["taskkill", "/F", "/T", "/PID", str(int(pid))], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                       stderr=subprocess.DEVNULL, timeout=15, check=False, shell=False,
+                       stderr=subprocess.DEVNULL, timeout=timeout, check=False, shell=False,
                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         pass
@@ -283,6 +309,7 @@ def _check_mode(value: Any) -> str:
 # ── document validation ──────────────────────────────────────────────────────────
 
 _REQUIRED: Dict[str, Dict[str, type]] = {
+    "version": {"schemas": dict, "capabilities": list, "facts_version": int},
     "devices": {"devices": list},
     "facts": {"records": list},
     "score": {"records": list},
@@ -298,6 +325,97 @@ def _contract(message: str, stderr_tail: str = "", exit_code: Optional[int] = No
 
 def _reject_constant(name: str) -> Any:
     raise ValueError(f"non-standard JSON constant {name}")
+
+
+_VERDICTS = ("PLAYS_WELL", "PLAYS_DEGRADED", "RISKY", "WONT_PLAY")
+
+
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _integer(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _strings(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _validate_deep(command: str, doc: dict) -> None:
+    """Validate consumer-facing fields while accepting additive, unknown fields."""
+    def require(valid: bool, path: str) -> None:
+        if not valid:
+            raise _contract(f"The {command} document has an invalid {path} entry.")
+
+    def fields(row: Any, path: str, checks: Mapping[str, Callable[[Any], bool]]) -> None:
+        require(isinstance(row, dict), path)
+        for key, check in checks.items():
+            require(key in row and check(row[key]), f"{path}.{key}" if path else key)
+
+    string = lambda value: isinstance(value, str)
+    nullable_string = lambda value: value is None or isinstance(value, str)
+    nullable_number = lambda value: value is None or _number(value)
+    verdict = lambda value: value in _VERDICTS
+    if command == "version":
+        require(_strings(doc["capabilities"]), "capabilities")
+        if "engine_tag" in doc:
+            require(nullable_string(doc["engine_tag"]), "engine_tag")
+    elif command in ("facts", "score"):
+        for index, record in enumerate(doc["records"]):
+            path = f"records[{index}]"
+            fields(record, path, {"id": string, "source": lambda value: isinstance(value, dict)})
+            fields(record["source"], path + ".source", {"path": string})
+            if "partial" in record["source"]:
+                require(isinstance(record["source"]["partial"], bool), path + ".source.partial")
+            if command == "score":
+                require(isinstance(record.get("playback"), dict), path + ".playback")
+                for key, playback in record["playback"].items():
+                    playback_path = path + ".playback." + key
+                    fields(playback, playback_path, {
+                        "verdict": verdict, "score": _number,
+                        "score_range": lambda value: isinstance(value, list) and len(value) == 2
+                        and all(_number(item) for item in value),
+                        "evidence": string, "effective_hdr": string, "effective_audio": nullable_string,
+                        "issues": lambda value: isinstance(value, list), "hints": _strings,
+                    })
+                    for issue_index, issue in enumerate(playback["issues"]):
+                        fields(issue, f"{playback_path}.issues[{issue_index}]",
+                               {"severity": string, "message": string})
+                if "best_player" in record:
+                    require(isinstance(record["best_player"], dict), path + ".best_player")
+                    for key, best in record["best_player"].items():
+                        fields(best, path + ".best_player." + key, {"player": string, "reason": string})
+    elif command == "rank":
+        for index, row in enumerate(doc["quality"]):
+            fields(row, f"quality[{index}]", {"id": string, "label": string, "rank": _integer,
+                                             "games": _integer, "quality_score": nullable_number})
+        for key, device in doc["devices"].items():
+            path = "devices." + key
+            fields(device, path, {"ranking": lambda value: isinstance(value, list),
+                                 "will_not_play": lambda value: isinstance(value, list),
+                                 "not_compared": lambda value: isinstance(value, list),
+                                 "crossing_note": nullable_string})
+            for index, row in enumerate(device["ranking"]):
+                fields(row, f"{path}.ranking[{index}]", {
+                    "label": string, "device_rank": _integer, "verdict": verdict,
+                    "playback_score": _number, "quality_score": nullable_number,
+                    "why": nullable_string, "reasons": _strings,
+                })
+        for key in ("stale_reports", "legacy_reports", "head_to_head_conflicts"):
+            if key in doc:
+                require(isinstance(doc[key], list), key)
+    elif command == "devices":
+        for index, device in enumerate(doc["devices"]):
+            path = f"devices[{index}]"
+            fields(device, path, {"id": string, "label": string, "players": lambda value: isinstance(value, list)})
+            for player_index, player in enumerate(device["players"]):
+                player_path = f"{path}.players[{player_index}]"
+                fields(player, player_path, {"id": string, "label": string,
+                                            "default": lambda value: isinstance(value, bool),
+                                            "rule_counts": lambda value: isinstance(value, dict)})
+                for key, count in player["rule_counts"].items():
+                    require(isinstance(key, str) and _integer(count), player_path + ".rule_counts." + str(key))
 
 
 def parse_document(command: str, raw: bytes, *, oversize: bool = False) -> SuiteDocument:
@@ -329,11 +447,7 @@ def parse_document(command: str, raw: bytes, *, oversize: bool = False) -> Suite
     if command == "compare":
         if doc["mode"] not in _MODES or doc["failed"] < 0 or not all(isinstance(p, dict) for p in doc["pairs"]):
             raise _contract("The compare document has invalid values.")
-    if command == "devices":
-        for d in doc["devices"]:
-            if not (isinstance(d, dict) and isinstance(d.get("id"), str) and isinstance(d.get("players"), list)
-                    and all(isinstance(p, dict) and isinstance(p.get("id"), str) for p in d["players"])):
-                raise _contract("The devices document has an invalid device entry.")
+    _validate_deep(command, doc)
     return SuiteDocument(doc)
 
 
@@ -411,7 +525,8 @@ class SuiteClient:
     def __init__(self, argv_prefix: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] = None, *,
                  popen: Optional[Callable[..., Any]] = None, killer: Optional[Callable[[int], None]] = None,
                  clock: Optional[Callable[[], float]] = None, environ: Optional[Mapping[str, str]] = None,
-                 env_path: Optional[Path] = None, root: Optional[str] = None) -> None:
+                 env_path: Optional[Path] = None, root: Optional[str] = None,
+                 job: Optional[Any] = None) -> None:
         self._environ: Mapping[str, str] = os.environ if environ is None else environ
         if argv_prefix is not None:
             prefix = [str(a) for a in argv_prefix]
@@ -429,7 +544,9 @@ class SuiteClient:
         self.env_overrides: Dict[str, str] = overrides
         self.root: Optional[str] = str(root) if root else None          # working folder of the child
         self._popen = popen or subprocess.Popen
+        self._job = job if job is not None else (proc_guard.default_job() if popen is None else proc_guard.NULL_JOB)
         self._killer = killer or taskkill_tree
+        self._default_killer = killer is None
         self._clock = clock or time.monotonic
 
     # ── timeouts ─────────────────────────────────────────────────────────────────
@@ -440,14 +557,16 @@ class SuiteClient:
     def _timeout_score_rank(self, n_files: int, deep_dv: bool) -> float:
         return SCORE_BASE_S + n_files * (SCORE_PER_FILE_S + (DEEP_DV_PER_FILE_S if deep_dv else 0))
 
-    def _timeout_compare(self) -> float:
+    def _timeout_compare(self, n_files: int = 0, mode: str = "fast", top: int = 4) -> float:
         raw = self._environ.get(ENV_COMPARE_TIMEOUT)
         try:
             value = float(raw) if raw is not None else None
         except ValueError:
             value = None
         if value is None or not math.isfinite(value) or value <= 0:
-            return COMPARE_TIMEOUT_S
+            n = min(n_files, 2 * top)
+            pairs = n * (n - 1) // 2
+            return max(COMPARE_TIMEOUT_S, pairs * COMPARE_PER_PAIR_S.get(mode, 9000) + 600)
         return value
 
     # ── commands ─────────────────────────────────────────────────────────────────
@@ -455,6 +574,10 @@ class SuiteClient:
     def devices(self) -> SuiteDocument:
         outcome = self._run("devices", ["devices", "--json"], self._timeout_devices())
         return self._finish("devices", outcome)
+
+    def version(self) -> SuiteDocument:
+        outcome = self._run("version", ["version", "--json"], self._timeout_devices())
+        return self._finish("version", outcome)
 
     def facts(self, paths: Sequence[str], deep_dv: bool = False) -> SuiteDocument:
         paths = _check_paths(paths)
@@ -468,6 +591,23 @@ class SuiteClient:
         paths = _check_paths(paths)
         extra = self._device_args(device, player, fs, lang) + (["--deep-dv"] if deep_dv else [])
         return self._with_list("score", paths, extra, self._timeout_score_rank(len(paths), deep_dv), cancel=cancel)
+
+    def score_partial(self, path: str, *, real_size: int, real_name: str, coverage: str = "head",
+                      device: Optional[str] = "all", player: Optional[str] = "all", fs: Optional[str] = None,
+                      lang: str = "eng", cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Score one partial download using its original size and file name."""
+        paths = _check_paths([path])
+        if isinstance(real_size, bool) or not isinstance(real_size, int) or not 1 <= real_size <= 2**50:
+            raise SuiteArgumentError("real_size must be a whole number of bytes")
+        if (not isinstance(real_name, str) or _text_problem(real_name) is not None
+                or "/" in real_name or "\\" in real_name or len(real_name) > 255):
+            raise SuiteArgumentError("real_name must be a plain file name")
+        if coverage not in ("head", "head_tail"):
+            raise SuiteArgumentError("coverage must be head or head_tail")
+        extra = self._device_args(device, player, fs, lang) + [f"--real-size={real_size}",
+                f"--real-name={real_name}", f"--coverage={coverage}"]
+        return self._with_list("score", paths, extra, SCORE_BASE_S + SCORE_PER_FILE_S, cancel=cancel,
+                               cleanup_budget=5.0)
 
     def rank(self, paths: Sequence[str], reports_dir: str, device: Optional[str] = "all", player: Optional[str] = "all",
              fs: Optional[str] = None, lang: str = "eng", wq: float = 0.5, wp: float = 0.5,
@@ -495,7 +635,8 @@ class SuiteClient:
         extra = self._device_args(device, player, fs, lang) + [f"--out={out_dir}", f"--mode={mode}", f"--top={top}"]
         if deep_dv:
             extra.append("--deep-dv")
-        return self._with_list("compare", paths, extra, self._timeout_compare(), on_line=on_line, cancel=cancel)
+        return self._with_list("compare", paths, extra, self._timeout_compare(len(paths), mode, top),
+                               on_line=on_line, cancel=cancel)
 
     # ── internals ────────────────────────────────────────────────────────────────
 
@@ -511,14 +652,16 @@ class SuiteClient:
 
     def _with_list(self, command: str, paths: List[str], extra: List[str], timeout: float, *,
                    on_line: Optional[Callable[[str], None]] = None,
-                   cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+                   cancel: Optional[Callable[[], bool]] = None,
+                   cleanup_budget: Optional[float] = None) -> Optional[SuiteDocument]:
         tmp = tempfile.mkdtemp(prefix="vsuite_")
         try:
             list_file = os.path.join(tmp, "paths.txt")
             with open(list_file, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write("\n".join(paths) + "\n")
             argv = [command, "--list", list_file, "--json"] + extra
-            outcome = self._run(command, argv, timeout, on_line=on_line, cancel=cancel)
+            outcome = self._run(command, argv, timeout, on_line=on_line, cancel=cancel,
+                                cleanup_budget=cleanup_budget)
             if outcome.reason == "cancel":
                 return None
             return self._finish(command, outcome)
@@ -531,7 +674,46 @@ class SuiteClient:
         env.update(self.env_overrides)
         return env
 
-    def _kill(self, proc: Any) -> None:
+    def _bounded_cleanup_call(self, action: Callable[[], Any], deadline: float, *,
+                              inline_on_failure: bool = False) -> None:
+        """Bound cleanup with a worker; only explicitly safe actions fall back inline.
+
+        The default tree killer has its own subprocess timeout. With no worker
+        available, injected killers must return promptly: an arbitrary Python
+        callback cannot be preempted on the calling thread. Never substitute a
+        real taskkill for an injected killer.
+        """
+        def best_effort():
+            try:
+                action()
+            except Exception:
+                pass
+        worker = threading.Thread(target=best_effort, daemon=True, name="suite-cleanup")
+        try:
+            worker.start()
+        except RuntimeError:
+            if inline_on_failure:
+                best_effort()
+            return
+        worker.join(max(0.0, deadline - self._clock()))
+
+    def _kill(self, proc: Any, *, deadline: Optional[float] = None) -> None:
+        if deadline is not None:
+            # Reserve time for direct kill, wait and pipe cleanup after taskkill.
+            tree_deadline = min(deadline, self._clock() + 2.0)
+            if self._default_killer:
+                self._bounded_cleanup_call(
+                    lambda: taskkill_tree(proc.pid, timeout=max(0.001, tree_deadline - self._clock())),
+                    tree_deadline, inline_on_failure=True)
+            else:
+                self._bounded_cleanup_call(lambda: self._killer(proc.pid), tree_deadline, inline_on_failure=True)
+            if proc.poll() is None:
+                self._bounded_cleanup_call(proc.kill, min(deadline, self._clock() + 0.25), inline_on_failure=True)
+            try:
+                proc.wait(max(0.0, deadline - self._clock()))
+            except Exception:
+                pass
+            return
         try:
             self._killer(proc.pid)
         except Exception:
@@ -547,7 +729,8 @@ class SuiteClient:
             pass
 
     def _run(self, command: str, args: List[str], timeout: float, *, on_line: Optional[Callable[[str], None]] = None,
-             cancel: Optional[Callable[[], bool]] = None) -> _Outcome:
+             cancel: Optional[Callable[[], bool]] = None,
+             cleanup_budget: Optional[float] = None) -> _Outcome:
         argv = self.argv_prefix + args
         try:
             proc = self._popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -555,15 +738,44 @@ class SuiteClient:
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except OSError:
             raise SuiteError("unavailable", "The VideoSuite process could not be started.") from None
-        out_reader, err_reader = _StdoutReader(proc.stdout), _StderrReader(proc.stderr, on_line)
-        out_reader.start()
-        err_reader.start()
+        try:
+            self._job.assign(proc)
+        except Exception:
+            pass
+        with _LIVE_LOCK:
+            _LIVE.add(proc)
+        try:
+            return self._run_process(proc, timeout, on_line=on_line, cancel=cancel,
+                                     cleanup_budget=cleanup_budget)
+        finally:
+            with _LIVE_LOCK:
+                _LIVE.discard(proc)
+
+    def _run_process(self, proc: Any, timeout: float, *, on_line: Optional[Callable[[str], None]],
+                     cancel: Optional[Callable[[], bool]], cleanup_budget: Optional[float]) -> _Outcome:
+        started_readers: List[Any] = []
         reason: Optional[str] = None
         deadline = self._clock() + timeout
+        cleanup_deadline: Optional[float] = None
+
+        def begin_cleanup() -> Optional[float]:
+            if cleanup_budget is None:
+                return None
+            # The quarter-second reserve covers the poll/scheduling boundary;
+            # all termination, wait, joins and pipe closes share this deadline.
+            return min(deadline, self._clock()) + cleanup_budget - _POLL_SECONDS
+
         try:
+            out_reader = _StdoutReader(proc.stdout)
+            out_reader.start()
+            started_readers.append(out_reader)
+            err_reader = _StderrReader(proc.stderr, on_line)
+            err_reader.start()
+            started_readers.append(err_reader)
             while True:
                 try:
-                    proc.wait(timeout=_POLL_SECONDS)
+                    poll_timeout = _POLL_SECONDS if cleanup_budget is None else max(0.0, min(_POLL_SECONDS, deadline - self._clock()))
+                    proc.wait(timeout=poll_timeout)
                     break
                 except subprocess.TimeoutExpired:
                     pass
@@ -574,19 +786,46 @@ class SuiteClient:
                 elif out_reader.oversize:
                     reason = "oversize"
                 if reason:
-                    self._kill(proc)
+                    cleanup_deadline = begin_cleanup()
+                    self._kill(proc, deadline=cleanup_deadline)
                     break
         except BaseException:
-            self._kill(proc)                         # the tree never outlives an error in a callback
-            raise
-        finally:
-            for t in (out_reader, err_reader):
-                t.join(_JOIN_SECONDS)
-            for stream in (proc.stdout, proc.stderr):
+            cleanup_deadline = begin_cleanup()
+            try:
+                self._kill(proc, deadline=cleanup_deadline)
+            except Exception:
+                # Preserve the reader/start/callback error even if cleanup fails.
                 try:
-                    stream.close()
+                    proc.kill()
+                    proc.wait(5 if cleanup_deadline is None else max(0.0, cleanup_deadline - self._clock()))
                 except Exception:
                     pass
+            raise
+        finally:
+            if cleanup_budget is not None and cleanup_deadline is None:
+                cleanup_deadline = begin_cleanup()
+            for t in started_readers:
+                try:
+                    t.join(_JOIN_SECONDS if cleanup_deadline is None else max(0.0, cleanup_deadline - self._clock()))
+                except Exception:
+                    pass
+            for stream in (proc.stdout, proc.stderr):
+                reader_active = any(getattr(t, "stream", None) is stream and t.is_alive()
+                                    for t in started_readers)
+                if cleanup_deadline is not None:
+                    try:
+                        self._bounded_cleanup_call(stream.close, cleanup_deadline,
+                                                   inline_on_failure=not reader_active)
+                    except Exception:
+                        pass
+                elif not reader_active:
+                    try:
+                        stream.close()
+                    except Exception:
+                        pass
+                # A still-active daemon reader can hold the buffered pipe lock.
+                # Without a cleanup worker, leave that pipe for EOF/GC rather
+                # than blocking the caller; its eventual close is best effort.
         return _Outcome(proc.returncode, out_reader.data, out_reader.oversize or reason == "oversize",
                         err_reader.text, reason)
 

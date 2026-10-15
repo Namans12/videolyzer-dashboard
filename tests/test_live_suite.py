@@ -30,7 +30,8 @@ pytestmark = pytest.mark.skipif(os.environ.get("VIDEOLYZER_LIVE_SUITE") != "1",
 
 def _suite_client(tmp_path: Path) -> SuiteClient:
     try:
-        return SuiteClient(env={"VC_CACHE_DIR": str(tmp_path / "suite_cache")})
+        return SuiteClient(env={"VC_CACHE_DIR": str(tmp_path / "suite_cache"),
+                                "VIDEOSUITE_SETTINGS": str(tmp_path / "no_settings.json")})
     except SuiteUnavailable as exc:
         pytest.skip(f"VideoSuite is not installed or configured: {exc}")
 
@@ -59,6 +60,13 @@ def test_live_devices(tmp_path):
     assert doc.exit_code == 0
 
 
+def test_live_version(tmp_path):
+    import suite_version
+    client = _suite_client(tmp_path)
+    assert suite_version.parse_version(client.version()["tool_version"]) is not None
+    assert suite_version.check(client)["status"] == "ok"
+
+
 def test_live_score_on_one_generated_clip(tmp_path):
     client = _suite_client(tmp_path)
     ffmpeg = _find_ffmpeg(client)
@@ -84,4 +92,23 @@ def test_live_score_on_one_generated_clip(tmp_path):
     assert record["video"]["codec"] == "h264"
     assert record["video"]["width"] == 640
     assert record["playback"], "no per-device playback verdicts"
+    assert doc.exit_code == 0
+
+
+def test_live_score_partial(tmp_path):
+    client = _suite_client(tmp_path)
+    ffmpeg = _find_ffmpeg(client)
+    if ffmpeg is None:
+        pytest.skip("ffmpeg not found on PATH or in the suite folder")
+    clip = tmp_path / "generated full clip.mkv"
+    result = subprocess.run(
+        [ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=3",
+         "-c:v", "libx264", "-crf", "26", "-pix_fmt", "yuv420p", str(clip)],
+        stdin=subprocess.DEVNULL, capture_output=True, timeout=120, check=False, shell=False)
+    assert result.returncode == 0 and clip.is_file(), "ffmpeg could not generate the test clip"
+    full = clip.read_bytes()
+    partial = tmp_path / "partial clip (a&b).mkv"
+    partial.write_bytes(full[:len(full) * 2 // 3])
+    doc = client.score_partial(str(partial), real_size=len(full), real_name="Tom & Jerry (2021) 100%.mkv")
+    assert doc["records"][0]["source"]["partial"] is True
     assert doc.exit_code == 0

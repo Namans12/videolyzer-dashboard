@@ -57,6 +57,37 @@ PROBE_BASE_S     = 60     # fixed overhead allowance
 PROBE_PER_FILE_S = 150    # per video file (covers the ~110 s/file worst case)
 PROBE_MAX_S      = 1200   # hard ceiling on the probe phase regardless of count
 
+SUITE_STAGE_MAX_S = 420
+PartialScorer = Callable[[list[dict[str, Any]], Callable[[str], None], Callable[[], bool]], dict[str, dict[str, Any]]]
+_partial_scorer: PartialScorer | None = None
+
+
+def set_partial_scorer(fn: PartialScorer | None) -> None:
+    global _partial_scorer
+    _partial_scorer = fn
+
+
+# Same rules as videosuite/cli.py `_check_partial` (--real-name): the suite refuses names with
+# control characters, DEL/C1, line separators and bidi controls, or longer than 255 characters.
+_SUITE_NAME_BAD = re.compile("[\x00-\x1f\x7f-\x9f -‮⁦-⁩]")
+SUITE_NAME_MAX = 255
+SUITE_NAME_FALLBACK = "partial.bin"
+
+
+def suite_real_name(torrent_path: str) -> str:
+    """File name sent to the suite as ``--real-name``: the last path component, made acceptable to the CLI.
+
+    Only the value handed to the suite is changed; the file name shown in job results stays as in the torrent.
+    """
+    name = re.split(r"[\\/]", str(torrent_path))[-1]
+    name = _SUITE_NAME_BAD.sub("_", name).strip()
+    if len(name) > SUITE_NAME_MAX:
+        ext = os.path.splitext(name)[1]
+        if len(ext) > 32:
+            ext = ""
+        name = (name[:SUITE_NAME_MAX - len(ext)] + ext).strip()
+    return name or SUITE_NAME_FALLBACK
+
 # All well-known public DHT bootstrap nodes.
 _DHT_ROUTERS = [
     ("router.bittorrent.com",  6881),
@@ -373,6 +404,7 @@ def fetch_magnet_metadata(
 
     Always tears down the libtorrent session and removes the temp directory.
     """
+    scorer = _partial_scorer
     lt = _load_libtorrent()
     emit = emit or (lambda _msg: None)
     cancel_check = cancel_check or (lambda: False)
@@ -548,6 +580,8 @@ def fetch_magnet_metadata(
         probe_deadline = time.time() + probe_budget
 
         analyses: list[dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
+        kept: set[str] = set()
         for loop_i, idx in enumerate(video_indexes):
             if loop_i > 0 and time.time() > probe_deadline:
                 remaining = num_videos - loop_i
@@ -649,11 +683,18 @@ def fetch_magnet_metadata(
                     # patching of individual fields.
                     result = analyze_file(probe_path, skip_dovi_scan=skip_dovi_scan,
                                           size_override_bytes=real_size)
+                if result and scorer is not None:
+                    retained_path = local_path if need_tail else probe_path
+                    entries.append({"key": rec["name"], "path": retained_path, "real_size": real_size,
+                                    "real_name": suite_real_name(rec["name"]),
+                                    "coverage": "head_tail" if need_tail else "head"})
+                    if probe_path:
+                        kept.add(probe_path)
             except Exception as exc:
                 logger.warning("ffprobe failed on partial %s: %s", local_path, exc)
                 result = None
             finally:
-                if probe_path:
+                if probe_path and probe_path not in kept:
                     try:
                         os.remove(probe_path)
                     except OSError:
@@ -669,6 +710,27 @@ def fetch_magnet_metadata(
                 rec["verdict"] = "bad"
                 rec["reasons"].append("ffprobe could not parse the header slice")
 
+        if scorer and entries:
+            try:
+                handle.pause()
+            except Exception:
+                pass
+            try:
+                emit(f"Scoring {len(entries)} file(s) with VideoSuite…")
+                scores = scorer(entries, emit, cancel_check)
+                for analysis in analyses:
+                    analysis["suite"] = scores.get(analysis["path"]) or {
+                        "status": "error", "error_kind": "internal", "message": "no VideoSuite result"}
+            except Exception:
+                logger.exception("VideoSuite magnet scoring failed")
+                for analysis in analyses:
+                    analysis["suite"] = {"status": "error", "error_kind": "internal", "message": "VideoSuite scoring failed"}
+            for path in kept:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+
         return {
             "torrent_name": torrent_name,
             "info_hash":    info_hash,
@@ -676,7 +738,10 @@ def fetch_magnet_metadata(
             "analyses":     analyses,
         }
     finally:
-        emit("Cleaning up torrent session and temp files…")
+        try:
+            emit("Cleaning up torrent session and temp files…")
+        except Exception:
+            logger.warning("Could not emit magnet cleanup notification", exc_info=True)
         if session is not None and handle is not None:
             try:
                 session.remove_torrent(handle, lt.session.delete_files)  # type: ignore[attr-defined]
@@ -728,7 +793,8 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
 
     t = threading.Thread(target=_run, daemon=True)
     t.start()
-    t.join(timeout=METADATA_TIMEOUT_S + PIECE_TIMEOUT_S + PROBE_MAX_S + 30)
+    t.join(timeout=METADATA_TIMEOUT_S + PIECE_TIMEOUT_S + PROBE_MAX_S + 30
+           + (SUITE_STAGE_MAX_S if _partial_scorer is not None else 0))
     if t.is_alive():
         raise TimeoutError(
             "Magnet job exceeded the hard timeout — a probe likely wedged. "

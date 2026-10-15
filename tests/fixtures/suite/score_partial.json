@@ -1,0 +1,550 @@
+{
+ "schema": "videosuite-score/1",
+ "tool_version": "0.4.0",
+ "records": [
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "2db78c91f53f414664d86255a067b83923dabad5",
+   "source": {
+    "path": "C:\\fixtures\\suite\\clip_a_crf18.mkv.__probe__.mkv",
+    "magnet": null,
+    "probe_coverage": "head",
+    "tools": {
+     "ffprobe": "ffprobe version N-120361-g829680f96a-20250723 Copyright (c) 2007-2025 the FFmpeg developers"
+    },
+    "partial": true,
+    "probed_bytes": 668319,
+    "real_name": "Movie.2160p.WEB-DL.DDP5.1.mkv",
+    "caveats": [
+     "only the start of the file was downloaded and probed",
+     "duration and bitrate come from the container header and are not verified",
+     "HDR10+ and Dolby Vision were read from the first frames only"
+    ]
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 4009914,
+    "duration_s": 10.0,
+    "overall_bitrate_kbps": 3208
+   },
+   "video": {
+    "codec": "h264",
+    "profile": "High",
+    "level": 30,
+    "width": 640,
+    "height": 360,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": 24.0,
+    "bit_depth": 8,
+    "bitrate_kbps": 3208,
+    "bitrate_source": "container_estimate"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "Movie.2160p.WEB-DL.DDP5.1.mkv",
+    "source_class": "web-dl",
+    "source_class_spec": "webdl",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": "2160p",
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 70,
+    "flags": [
+     {
+      "code": "resolution_mismatch",
+      "severity": "error",
+      "detail": "the name claims 2160p but the picture is 640 pixels wide"
+     }
+    ],
+    "vetoes": [
+     "resolution_mismatch"
+    ]
+   },
+   "playback": {
+    "galaxy_tab_s9_ultra/vlc": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "reviewed",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the Snapdragon 8 Gen 2",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: Samsung lists MKV among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "galaxy_tab_s9_ultra/samsung_video": {
+     "device": "galaxy_tab_s9_ultra",
+     "player": "samsung_video",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: Samsung's player uses the hardware decoders",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: Samsung lists MKV among the tablet's playable containers",
+       "confidence": "reviewed",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "sony_bravia_8_ii/builtin_usb": {
+     "device": "sony_bravia_8_ii",
+     "player": "builtin_usb",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      58.0,
+      58.0
+     ],
+     "evidence": "official",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: H.264 up to 4K@60 (Sony help guide)",
+       "confidence": "official",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV with internal and external subtitles (Sony help guide)",
+       "confidence": "official",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "sony_bravia_8_ii/kodi": {
+     "device": "sony_bravia_8_ii",
+     "player": "kodi",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV plays in Kodi on a BRAVIA 9 (same platform family)",
+       "confidence": "forum",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "sony_bravia_8_ii/just_player": {
+     "device": "sony_bravia_8_ii",
+     "player": "just_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: the TV's hardware decoders; not tested on this TV",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: MKV plays in Just Player on a BRAVIA 9",
+       "confidence": "forum",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: not tested on this TV",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "vivobook_pro_16x/vlc": {
+     "device": "vivobook_pro_16x",
+     "player": "vlc",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: hardware decode on the AMD iGPU",
+       "confidence": "reviewed",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: VLC plays it; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is containers.matroska (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    },
+    "vivobook_pro_16x/windows_player": {
+     "device": "vivobook_pro_16x",
+     "player": "windows_player",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "score_range": [
+      43.0,
+      73.0
+     ],
+     "evidence": "inferred",
+     "effective_hdr": "SDR",
+     "effective_hdr_class": "sdr",
+     "effective_audio": null,
+     "audio_language": null,
+     "subtitle_choice": null,
+     "issues": [
+      {
+       "code": "partial_probe",
+       "severity": "info",
+       "message": "facts come from a partial download: only the start of the file was downloaded and probed; duration and bitrate come from the container header and are not verified; HDR10+ and Dolby Vision were read from the first frames only",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "video_codec_note",
+       "severity": "info",
+       "message": "video codec h264: built into Windows",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      },
+      {
+       "code": "container_note",
+       "severity": "info",
+       "message": "container matroska: plays MKV; no source for this exact build",
+       "confidence": "inferred",
+       "rule": "containers.matroska"
+      },
+      {
+       "code": "hdr_uncertain",
+       "severity": "info",
+       "message": "the picture path rests on inferred evidence only: SDR plays on any display",
+       "confidence": "inferred",
+       "rule": "hdr_map.sdr"
+      },
+      {
+       "code": "no_audio_tracks",
+       "severity": "warn",
+       "message": "the file has no audio track",
+       "confidence": "n/a",
+       "rule": ""
+      },
+      {
+       "code": "unverified_path",
+       "severity": "info",
+       "message": "the least certain rule used is video_codecs.h264 (inferred), so the score is a range",
+       "confidence": "inferred",
+       "rule": "video_codecs.h264"
+      }
+     ],
+     "hints": [],
+     "usb_filesystem": null,
+     "usb_filesystem_source": null,
+     "audio_output": null
+    }
+   },
+   "pixel_results": [],
+   "best_player": {
+    "galaxy_tab_s9_ultra": {
+     "player": "vlc",
+     "label": "VLC for Android",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC for Android (the default player): no other player is clearly better for this file"
+    },
+    "sony_bravia_8_ii": {
+     "player": "builtin_usb",
+     "label": "Sony USB media player (built-in)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "builtin_usb",
+     "switch": false,
+     "reason": "Sony USB media player (built-in) (the default player): no other player is clearly better for this file"
+    },
+    "vivobook_pro_16x": {
+     "player": "vlc",
+     "label": "VLC 3.0.x (Direct3D11 output)",
+     "verdict": "PLAYS_DEGRADED",
+     "score": 58.0,
+     "default_player": "vlc",
+     "switch": false,
+     "reason": "VLC 3.0.x (Direct3D11 output) (the default player): no other player is clearly better for this file"
+    }
+   }
+  }
+ ],
+ "settings": {
+  "path": "C:\\fixtures\\suite\\no_settings.json",
+  "loaded": false,
+  "errors": [],
+  "applied_count": 0
+ }
+}
