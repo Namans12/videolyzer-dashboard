@@ -130,3 +130,21 @@ def test_every_suite_route_is_mentioned_in_the_integration_contract():
     missing = sorted(path for path in own_route_paths() if path.startswith("/suite/")
                      and not re.search(re.escape(path) + r"(?![\w{}/-])", contract))
     assert not missing, f"routes missing from docs/SUITE_INTEGRATION.md: {missing}"
+
+
+def test_settings_route_is_registered_and_documented():
+    assert "/suite/settings" in own_route_paths()
+    contract = (ROOT / "docs" / "SUITE_INTEGRATION.md").read_text(encoding="utf-8")
+    for text in (README, contract):
+        assert "/suite/settings" in text
+        assert "five `/suite/...` routes" not in text
+
+
+def test_readme_documents_the_suite_tab_and_frontend_tests():
+    assert "## Suite tab" in README
+    assert "npm test" in README
+    assert "The core Suite routes require VideoSuite 0.3.0 or later; install 0.4.0 for owner settings, partial-file scoring and current progress features." in README
+    assert "Evidence (weakest rule used): official = the maker's documentation; owner = tested by you; reviewed = a professional review; forum = user reports; inferred = our deduction; unknown = no information. A score range (for example 69-99) means the result is uncertain." in README
+    testing = (ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8")
+    assert "npm test" in testing
+    assert "The frontend has no automated tests." not in testing

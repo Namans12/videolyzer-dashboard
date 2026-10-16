@@ -48,7 +48,7 @@ videolyzer-dashboard/
   request_guard.py     # Host/Origin/Fetch-Metadata/Content-Type guard (ASGI middleware)
   path_guard.py        # Validation of every server-local path
   suite_client.py      # Subprocess client for the VideoSuite CLI (validates videosuite-<cmd>/1 JSON)
-  suite_routes.py      # /suite/version, /suite/devices, /suite/score, /suite/rank, /suite/compare
+  suite_routes.py      # /suite/version, /suite/devices, /suite/settings, /suite/score, /suite/rank, /suite/compare
   suite_version.py     # Version handshake, capability gates and cached startup check
   magnet_suite.py      # Bounded, nonfatal scoring of retained partial magnet files
   proc_guard.py        # Windows kill-on-close Job Object for suite children
@@ -192,6 +192,20 @@ The backend never downloads a large file in full and never seeds on purpose: the
   assert set(session_settings(6881)) <= set(lt.default_settings())
   ```
 
+## Suite tab
+
+Open **Suite (all devices)** next to **Analyze** for device playback checks and picture comparison. The core Suite routes require VideoSuite 0.3.0 or later; install 0.4.0 for owner settings, partial-file scoring and current progress features. The banner explains readiness; use **Check again** after installing or changing settings.
+
+Type or paste one full local video path per line, 1 to 50 files. Explorer **Copy as path** quotes are accepted. A list with any invalid line is not sent, including its valid subset. Choose a device/player, USB file system (**Owner settings (per device)** by default), and audio/subtitle language.
+
+**Score files** shows a card per device with verdict, evidence word, score (a range when uncertain), what you will see, issues in veto/warn/risk/info order, and the best player. Forum, inferred and unknown evidence show a visible **Unverified rules** note; confirm those rules with your own playback test.
+
+Evidence (weakest rule used): official = the maker's documentation; owner = tested by you; reviewed = a professional review; forum = user reports; inferred = our deduction; unknown = no information. A score range (for example 69-99) means the result is uncertain.
+
+**Compare and rank** runs `compare` then `rank` automatically, using Fast or Accurate mode, top K 1-6 and a reports folder without `& ^ % ! " ' < > |`. It shows only VideoSuite's own estimate and per-pair progress. Cancel waits for the backend to confirm the job stopped. Retained progress lines may be incomplete; the pair counter is a lower bound, and saturated logs hide stale progress percentages.
+
+Owner settings are read-only (`/suite/settings`). The latest completed run's settings block is labelled separately from device facts from the last settings check; **Check again** may reuse a cached document for up to 60 seconds. Magnet results, including every expanded series episode's releases, show their own VideoSuite block. The **Analyze** view is the legacy Bravia-only view; its reference TV/USB and HDR hierarchy panels start collapsed. Switching tabs preserves typed inputs and running jobs.
+
 ## API Endpoints
 
 Every route passes the request guard; every route that takes a server-local path also passes the path guard (see Security model). Routes exposed by the backend:
@@ -209,11 +223,12 @@ Every route passes the request guard; every route that takes a server-local path
 - POST /compare-magnets/{job_id}/cancel - cancel an in-flight magnet comparison
 - POST /job/{job_id}/cancel - cancel any job (see Job states below)
 - GET /suite/devices - the VideoSuite device catalogue (cached 60 s); needs videosuite 0.3.0 or later
+- GET /suite/settings - the owner settings VideoSuite reports (read-only: settings file path, loaded or not, errors, applied overrides, per-device USB file system and audio output); shares the 60 s devices cache
 - POST /suite/score - device playback scoring of 1 to 50 video files (job)
 - POST /suite/rank - quality + playback ranking of 1 to 50 video files using an existing folder of Comparizer reports (job)
 - POST /suite/compare - pixel comparison of 1 to 50 video files into an output folder (job, one at a time)
 
-The five `/suite/...` routes are described in `docs/SUITE_INTEGRATION.md` (request bodies, response documents, error kinds, exit codes). A `/suite` job POST answers 503 `{"detail": "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"}` and creates no job when the suite is not installed.
+The six `/suite/...` routes are described in `docs/SUITE_INTEGRATION.md` (request bodies, response documents, error kinds, exit codes). A `/suite` job POST answers 503 `{"detail": "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"}` and creates no job when the suite is not installed.
 
 Heavy jobs are `suite_compare` and `suite_score` with `deep_dv: true`: only one
 runs at a time. A second comparison gets 409 `a comparison is already running`.
@@ -405,6 +420,8 @@ npm run dev:stack # launch backend + frontend together (Windows)
 npm run build    # frontend production build
 npm run preview  # preview production build
 npm run lint     # lint frontend code
+npm test         # frontend unit/component tests (Vitest + jsdom)
+npm run test:watch # watch frontend tests
 ```
 
 ## License

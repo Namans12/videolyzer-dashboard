@@ -9,7 +9,7 @@ A FastAPI backend wraps three offline tools (MediaInfo, ffprobe, dovi_tool) and
 one online tool (libtorrent). Every user-facing request becomes a **job** stored
 in the in-process job store (`jobs.py`, exposed as `main._jobs`) and runs in a
 `BackgroundTasks` thread. The frontend polls `/job/{job_id}` until `status` is
-`"done"` or `"error"` (the API can also end a job as `"cancelled"`), then
+`"done"`, `"error"` or `"cancelled"`, then
 renders the result. There is no database — restart the server and jobs vanish.
 
 ## Module map
@@ -21,7 +21,7 @@ request_guard.py    ASGI middleware: Host / Origin / Sec-Fetch-Site / JSON Conte
 path_guard.py       validate_user_path(): every server-local path, allowed roots, remote drives.
 suite_client.py     SuiteClient: runs `python -m videosuite <cmd> --json` as a subprocess,
                     validates the videosuite-<cmd>/1 document, kills the process tree.
-suite_routes.py     /suite/version|devices|score|rank|compare: bodies, guards, jobs, heavy slots.
+suite_routes.py     /suite/version|devices|settings|score|rank|compare: bodies, guards, jobs, heavy slots.
 suite_version.py    Numeric version handshake, 300 s definitive/10 s failure cache, startup check.
 magnet_suite.py     Nonfatal score_partial calls on retained probes: 8 files, 300 s stage budget.
 proc_guard.py       Windows kill-on-close Job Object, assigned per real suite child.
@@ -203,3 +203,30 @@ jobs.get(job_id) == {
 | Change an allowed Host/Origin or content type | `request_guard.py` |
 | Change which paths are accepted           | `path_guard.py` (and its README section) |
 | Add a UI panel                            | `src/App.tsx`, find a sibling section by greping `dashboard-section` |
+
+## `src/suite/` frontend
+
+The Suite tab stays mounted after its first visit; inactive panels use `hidden` so inputs and active jobs survive switching tabs. Analyze stays mounted and retains the frozen Bravia scoring. Every Suite verdict uses `VerdictBadge`, which owns the label, evidence word and visible unverified notice.
+
+| Module | Responsibility |
+| --- | --- |
+| `types.ts` | Additive read shapes for suite version, devices, jobs, score/rank/compare and settings documents. |
+| `config.ts` | Shared fixed loopback API base used by both App and Suite. |
+| `api.ts` | Typed HTTP calls, sanitized errors, exact JSON request bodies, and job-envelope validation. |
+| `useJob.ts` | Effect-owned polling session per job: single flight, abort, response-relative backoff, terminal states and honest cancel. |
+| `messages.ts` | Plain status/error text, CLI progress parsing and retained-log summaries. |
+| `verdict.ts` | Evidence notices, score ranges, issue order/folding, player advice and prototype-safe labels. |
+| `paths.ts` | Path/folder/language checks, chooser defaults and omission of default request options. |
+| `compare.ts` | Compare/rank document guards, eligibility and immutable run snapshot type. |
+| `screen.ts` | Abort-safe version/devices/settings loader and all-or-nothing chooser gating. |
+| `SuiteScreen.tsx` | Composition, guarded score starts and completion-ordered settings publication. |
+| `SuiteStatusBanner.tsx`, `EvidenceLegend.tsx` | Suite readiness/recheck and exact evidence legend. |
+| `VerdictBadge.tsx`, `BestPlayerHint.tsx`, `JobMessage.tsx` | Consistent evidence, advice and job notices; raw failure detail stays in closed details. |
+| `FileChooser.tsx` | Controlled paths and device/player/filesystem/language inputs. |
+| `DeviceCard.tsx`, `ScoreResults.tsx` | Full record names, per-device playback rows, issues, partial caveats and best-player evidence. |
+| `ComparePanel.tsx`, `RankResult.tsx` | Guarded compare-to-rank chain, progress/cancel/retry and device-neutral/per-player rankings. |
+| `SettingsPanel.tsx`, `MagnetSuiteBlock.tsx` | Read-only settings facts and runtime-narrowed saved/live magnet recommendations. |
+| `suite.css` | Theme-variable styles, visible notices and complete wrapping paths. |
+| `testing/fixtures.ts`, `testing/fetchMock.ts` | Cloned real documents and strictly mocked HTTP for frontend tests. |
+
+`src/jobStatus.ts` defines the terminal job statuses shared with the legacy pollers. The new read-only `/suite/settings` route derives facts from the suite's devices document; its dedicated fill lock shares one 60-second cache fill with `/suite/devices` and never caches failures or reads the owner's settings file itself.

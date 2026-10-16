@@ -1022,3 +1022,160 @@ def test_progress_events_are_bounded_and_truncated(videos, tmp_path):
     assert len(job["events"]) <= suite_routes.MAX_PROGRESS_EVENTS + 5
     assert max(len(e["msg"]) for e in job["events"]) <= 600
     assert job["current"].startswith("line ")                    # the latest line is still visible
+
+
+# Plan 3: owner settings are facts reported by the suite, never a direct file read.
+def test_settings_route_returns_owner_facts(client, fake):
+    response = client.get("/suite/settings")
+    assert response.status_code == 200
+    body = response.json()
+    assert {k: v for k, v in body.items() if k != "devices"} == {
+        "tool_version": "0.4.0", "supported": True, "path": "C:\\fixtures\\suite\\no_settings.json",
+        "loaded": False, "errors": [], "applied_count": 0,
+    }
+    assert set(body["devices"]) == {"sony_bravia_8_ii", "galaxy_tab_s9_ultra", "vivobook_pro_16x"}
+    for d in fixture_doc("devices.json")["devices"]:
+        assert body["devices"][d["id"]] == {"label": d["label"], "usb_filesystem": None, "audio_output": None, "overrides": []}
+
+
+def test_settings_loaded_overrides_and_broken_file(client):
+    doc = fixture_doc("devices.json")
+    doc["settings"] = {"path": "D:\\Owner\\settings.json", "loaded": True, "errors": ["unknown key x"], "applied_count": 1}
+    sony = next(d for d in doc["devices"] if d["id"] == "sony_bravia_8_ii")
+    sony["settings"] = {"usb_filesystem": "exfat", "audio_output": "tv_speakers"}
+    sony["players"][1]["overrides"] = [{"rule": "audio_codecs.truehd", "source": "owner_test", "reason": "tested on my TV", "confidence": "owner"}]
+    f = FakeClient(devices=doc)
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    body = client.get("/suite/settings").json()
+    assert body["loaded"] is True and body["applied_count"] == 1 and body["errors"] == ["unknown key x"]
+    assert body["devices"]["sony_bravia_8_ii"] == {"label": sony["label"], "usb_filesystem": "exfat", "audio_output": "tv_speakers", "overrides": [{"player": "kodi", "rule": "audio_codecs.truehd", "source": "owner_test", "reason": "tested on my TV", "confidence": "owner"}]}
+    suite_routes.reset_state()
+    doc["settings"].update(loaded=False, errors=["settings.json: devices must be an object"], applied_count=0)
+    response = client.get("/suite/settings")
+    assert response.status_code == 200 and response.json()["errors"] == ["settings.json: devices must be an object"]
+
+
+def test_settings_old_suite_and_wrong_scalars(client):
+    doc = fixture_doc("devices.json"); doc.pop("settings")
+    for d in doc["devices"]:
+        d.pop("settings")
+    f = FakeClient(devices=doc)
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    body = client.get("/suite/settings").json()
+    assert body["supported"] is False and body["path"] is None
+    assert all(d["usb_filesystem"] is None for d in body["devices"].values())
+    weird = {"tool_version": 4, "settings": {"path": 7, "loaded": "yes", "errors": ["a", 3], "applied_count": True}, "devices": [{"id": "x", "label": None, "settings": "no", "players": [{"id": "p", "overrides": ["bad"]}]}, {"label": "no id"}, "junk"]}
+    suite_routes.reset_state(); f.results["devices"] = weird
+    assert client.get("/suite/settings").json() == {"tool_version": None, "supported": True, "path": None, "loaded": False, "errors": ["a"], "applied_count": 0, "devices": {"x": {"label": "x", "usb_filesystem": None, "audio_output": None, "overrides": []}}}
+
+
+@pytest.mark.parametrize("bad", [7, "bad", {}, None])
+@pytest.mark.parametrize("field", ["errors", "players", "overrides", "devices"])
+def test_settings_wrong_container_types_never_mutate_cache(client, bad, field):
+    doc = fixture_doc("devices.json")
+    if field == "devices":
+        assert suite_routes.settings_view({"tool_version": "0.4.0", "devices": bad})["devices"] == {}
+        return
+    if field == "errors":
+        doc["settings"]["errors"] = bad
+    elif field == "players":
+        doc["devices"][1]["players"] = bad
+    else:
+        doc["devices"][1]["players"][0]["overrides"] = bad
+    before = copy.deepcopy(doc)
+    main.app.dependency_overrides[get_suite_client] = lambda: FakeClient(devices=doc)
+    response = client.get("/suite/settings")
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["errors"] if field == "errors" else body["devices"]["sony_bravia_8_ii"]["overrides"]) == []
+    assert suite_routes._devices_cache[1] == before
+
+
+def test_settings_shares_devices_cache(client, fake, monkeypatch):
+    now = [1000.0]; monkeypatch.setattr(suite_routes, "_clock", lambda: now[0])
+    assert client.get("/suite/devices").status_code == 200
+    now[0] += 59
+    assert client.get("/suite/settings").status_code == 200
+    assert [c[0] for c in fake.calls] == ["devices"]
+    now[0] += 2; assert client.get("/suite/settings").status_code == 200
+    assert [c[0] for c in fake.calls] == ["devices", "devices"]
+
+
+def test_simultaneous_devices_and_settings_share_one_fill(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    import suite_version
+    entered, release, second_started, second_miss = threading.Event(), threading.Event(), threading.Event(), threading.Event()
+    original_fresh = suite_routes._fresh_devices
+    misses = []
+    miss_lock = threading.Lock()
+    def fresh():
+        value = original_fresh()
+        if value is None:
+            with miss_lock:
+                misses.append(True)
+                if len(misses) >= 3:
+                    second_miss.set()
+        return value
+    monkeypatch.setattr(suite_routes, "_fresh_devices", fresh)
+    def devices():
+        entered.set()
+        assert release.wait(5)
+        return fixture_doc("devices.json")
+    f = VersionFakeClient(devices=devices)
+    suite_version.ensure(f)
+    def second():
+        second_started.set()
+        return suite_routes.settings_view(suite_routes._devices_document(f))
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(suite_routes._devices_document, f)
+        try:
+            assert entered.wait(5)
+            other = pool.submit(second)
+            assert second_started.wait(5)
+            assert second_miss.wait(5)  # both requests observed a cold cache before releasing the CLI read
+        finally:
+            release.set()
+        assert first.result(timeout=5) == fixture_doc("devices.json")
+        assert other.result(timeout=5)["tool_version"] == "0.4.0"
+    assert [c[0] for c in f.calls].count("devices") == 1
+
+
+def test_settings_error_is_not_cached_and_recovers(client):
+    f = FakeClient(devices=SuiteError("timeout", "x"))
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    assert client.get("/suite/settings").status_code == 504
+    f.results["devices"] = fixture_doc("devices.json")
+    assert client.get("/suite/settings").status_code == 200
+    assert len(f.calls) == 2
+
+
+@pytest.mark.parametrize("kind,status,detail", [("unavailable", 503, UNAVAILABLE), ("timeout", 504, "VideoSuite timed out."), ("failed", 502, "VideoSuite failed."), ("contract", 502, "VideoSuite returned an unusable response.")])
+def test_settings_errors_do_not_expose_stderr(client, kind, status, detail):
+    f = FakeClient(devices=SuiteError(kind, "secret", stderr_tail="C:\\secret\\x"))
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    response = client.get("/suite/settings")
+    assert response.status_code == status and response.json() == {"detail": detail}
+    assert "secret" not in response.text
+
+
+def test_settings_factory_unavailable_and_old_version(client):
+    def unavailable():
+        raise SuiteUnavailable("secret")
+    main.app.dependency_overrides[get_suite_client] = unavailable
+    response = client.get("/suite/settings")
+    assert response.status_code == 503 and response.json() == {"detail": UNAVAILABLE}
+    f = VersionFakeClient(version=dict(fixture_doc("version.json"), tool_version="0.2.9"))
+    main.app.dependency_overrides[get_suite_client] = lambda: f
+    response = client.get("/suite/settings")
+    assert response.status_code == 502
+    assert response.json() == {"detail": "The installed VideoSuite is 0.2.9; the Dashboard needs 0.3.0 or later. Reinstall the Comparizer (run the latest Video Comparator installer), then restart the Dashboard."}
+
+
+def test_settings_request_guards(client, fake):
+    for headers, status, detail in [({"Origin": "http://evil.example"}, 403, "origin not allowed"), ({"Host": "evil.example"}, 400, "host not allowed"), ({"Sec-Fetch-Site": "cross-site"}, 403, "cross-site request refused")]:
+        response = client.get("/suite/settings", headers=headers)
+        assert response.status_code == status and response.json() == {"detail": detail}
+    response = client.get("/suite/settings", headers={"Origin": "http://localhost:5173"})
+    assert response.status_code == 200 and response.headers["access-control-allow-origin"] == "http://localhost:5173"
+    assert client.post("/suite/settings", content="x", headers={"Content-Type": "text/plain"}).status_code == 415
+    assert client.post("/suite/settings", json={}).status_code == 405

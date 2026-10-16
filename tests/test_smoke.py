@@ -20,6 +20,7 @@ EXPECTED_ROUTES = {
 SUITE_ROUTES = {
     "/suite/version",
     "/suite/devices",
+    "/suite/settings",
     "/suite/score",
     "/suite/rank",
     "/suite/compare",

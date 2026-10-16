@@ -11,7 +11,12 @@ import type {
 } from "./types";
 import { BRAVIA_8_II_SPEC } from "./types";
 import "./App.css";
+import { CANCELLED_TEXT, JOB_GONE_TEXT, pollOutcome } from "./jobStatus";
 import Switch from "./Switch";
+import { API } from "./suite/config";
+import { SuiteScreen } from "./suite/SuiteScreen";
+import { SuiteBoundary } from "./suite/SuiteBoundary";
+import { MagnetSuiteBlock } from "./suite/MagnetSuiteBlock";
 
 // ── Magnet link icon (reusable) ──────────────────────────────────────────────
 // Renders the same SVG used in the magnet input field, wrapped in an <a>
@@ -192,6 +197,12 @@ function SeriesComparisonView({ data }: { data: EpisodeComparison }) {
                     borderTop: "1px solid var(--compare-cell-border)",
                   }}>
                     <EpisodeMatrix comparison={ep.comparison} />
+                    {ep.comparison.releases.map((rel, ri) => rel.analysis?.suite !== undefined && (
+                      <div key={`${ep.key}-${ri}-${rel.analysis.path}`} className="episode-suite">
+                        <p className="episode-suite-name">{rel.name}</p>
+                        <MagnetSuiteBlock suite={rel.analysis.suite} />
+                      </div>
+                    ))}
                   </div>
                 )}
               </React.Fragment>
@@ -252,8 +263,6 @@ function EpisodeMatrix({ comparison }: { comparison: ComparisonPayload }) {
 // ── Constants ────────────────────────────────────────────────────────────────
 const VIDEO_EXTS = [".mkv", ".mp4", ".ts", ".m2ts", ".hevc", ".h265"];
 
-const API = "http://127.0.0.1:8000";
-
 const DV_HIERARCHY = [
   { label: "Profile 7 FEL", verdict: "Best Source",    cls: "r1", notes: "Full dual-layer DV — but EL is WASTED on Bravia 8 II. Convert to P8.1 MP4 for this TV." },
   { label: "Profile 7 MEL", verdict: "Excellent", cls: "r2", notes: "Thin EL stub — RPU accessible via Just Player on some Sony TVs. Better than FEL for this TV." },
@@ -278,6 +287,13 @@ const FILE_COLORS = ["#ffd700", "#2997ff", "#30d158", "#ff9f0a", "#bf5af2"];
 
 function cleanFileName(name: string): string {
   return name.replace(/^[0-9a-f]{32}_/i, "");
+}
+
+type AppTab = "analyze" | "suite";
+const TAB_KEY = "active_tab";
+function readStoredTab(): AppTab {
+  try { return localStorage.getItem(TAB_KEY) === "suite" ? "suite" : "analyze"; }
+  catch { return "analyze"; }
 }
 
 class ResultErrorBoundary extends React.Component<
@@ -763,18 +779,27 @@ export default function App() {
   // scan the whole runtime. Turn on when comparing for an HDR10+-capable TV.
   const [hdr10plusMode,    setHdr10plusMode]    = useState(false);
   const [isLightMode,      setIsLightMode]      = useState<boolean>(() => {
-    const saved = localStorage.getItem("theme");
-    if (saved === "light") return true;
-    if (saved === "dark")  return false;
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "light") return true;
+      if (saved === "dark") return false;
+    } catch { /* storage unavailable */ }
     // First visit or stale value → default to dark mode
     return false;
   });
   useEffect(() => {
-    localStorage.setItem("theme", isLightMode ? "light" : "dark");
+    try { localStorage.setItem("theme", isLightMode ? "light" : "dark"); } catch { /* not persisted */ }
   }, [isLightMode]);
   useEffect(() => {
-    localStorage.setItem("last_results", JSON.stringify(data));
+    try { localStorage.setItem("last_results", JSON.stringify(data)); } catch { /* not persisted */ }
   }, [data]);
+  const [activeTab, setActiveTab] = useState<AppTab>(readStoredTab);
+  const [suiteOpened, setSuiteOpened] = useState<boolean>(() => readStoredTab() === "suite");
+  const selectTab = (tab: AppTab) => {
+    setActiveTab(tab);
+    if (tab === "suite") setSuiteOpened(true);
+    try { localStorage.setItem(TAB_KEY, tab); } catch { /* not persisted */ }
+  };
   const abortRef = useRef(false);
   const [jobId,       setJobId]       = useState<string | null>(null);
   const [progressMsg, setProgressMsg] = useState("");
@@ -898,15 +923,21 @@ export default function App() {
             }
             try {
               const jobRes = await fetch(`${API}/job/${job_id}`);
-              const job = await jobRes.json() as {
-                status: string; progress: string; current: string;
-                results: VideoData[]; error: string | null;
+              const job = await jobRes.json().catch(() => ({ status: "error" })) as {
+                status?: string; progress?: string; current?: string;
+                results?: VideoData[]; error?: string | null;
               };
-              setProgressMsg(`${job.current || "…"} (${job.progress})`);
-              if (job.status === "done") {
-                results = job.results;
+              const outcome = pollOutcome(jobRes.status, job);
+              if (jobRes.ok) setProgressMsg(`${job.current || "…"} (${job.progress ?? ""})`);
+              if (outcome === "done") {
+                results = job.results ?? [];
                 resolve();
-              } else if (job.status === "error") {
+              } else if (outcome === "cancelled") {
+                cancelled = true;
+                resolve();
+              } else if (outcome === "gone") {
+                reject(new Error(JOB_GONE_TEXT));
+              } else if (outcome === "error") {
                 reject(new Error(job.error ?? "Analysis failed."));
               } else {
                 setTimeout(poll, 600);
@@ -967,6 +998,7 @@ export default function App() {
       }
 
       if (cancelled) {
+        setError(CANCELLED_TEXT);
         return;
       }
 
@@ -978,7 +1010,7 @@ export default function App() {
           );
 
       setData(results);
-      localStorage.setItem("last_results", JSON.stringify(results));
+      try { localStorage.setItem("last_results", JSON.stringify(results)); } catch { /* not persisted */ }
     } catch (err: unknown) {
       let message = "Analysis failed.";
       if (err instanceof Error) {
@@ -994,6 +1026,8 @@ export default function App() {
     } finally {
       abortRef.current = false;
       setIsLoading(false);
+      setJobId(null);
+      setProgressMsg("");
     }
   };
 
@@ -1053,16 +1087,19 @@ export default function App() {
             try {
               await fetch(`${API}/magnet/${job_id}/cancel`, { method: "POST" });
             } catch { /* ignore */ }
-            reject(new Error("Cancelled."));
+            reject(new Error(CANCELLED_TEXT));
             return;
           }
           try {
             const r = await fetch(`${API}/job/${job_id}`);
-            const j = await r.json() as MagnetJob;
-            const last = j.events.at(-1);
+            const j = await r.json().catch(() => ({ status: "error" })) as MagnetJob;
+            const last = Array.isArray(j.events) ? j.events.at(-1) : undefined;
             if (last) setProgressMsg(last.msg);
-            if (j.status === "done") resolve(j);
-            else if (j.status === "error") reject(new Error(j.error ?? "Magnet job failed."));
+            const outcome = pollOutcome(r.status, j);
+            if (outcome === "done") resolve(j);
+            else if (outcome === "cancelled") reject(new Error(CANCELLED_TEXT));
+            else if (outcome === "gone") reject(new Error(JOB_GONE_TEXT));
+            else if (outcome === "error") reject(new Error(j.error ?? "Magnet job failed."));
             else setTimeout(poll, 800);
           } catch (e) { reject(e); }
         };
@@ -1073,7 +1110,7 @@ export default function App() {
       setMagnetTorrent(job.magnet_torrent);
       const ranked = (job.results ?? []).filter(Boolean);
       setData(ranked);
-      localStorage.setItem("last_results", JSON.stringify(ranked));
+      try { localStorage.setItem("last_results", JSON.stringify(ranked)); } catch { /* not persisted */ }
       setProgressMsg("");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Magnet analysis failed.");
@@ -1146,17 +1183,24 @@ export default function App() {
       const job = await new Promise<CompareJob>((resolve, reject) => {
         const poll = async () => {
           if (abortRef.current) {
-            await fetch(`${API}/compare-magnets/${job_id}/cancel`, { method: "POST" });
-            reject(new Error("Cancelled"));
+            try {
+              await fetch(`${API}/compare-magnets/${job_id}/cancel`, { method: "POST" });
+            } catch { /* ignore: the job ends on its own or is purged */ }
+            reject(new Error(CANCELLED_TEXT));
             return;
           }
           try {
             const r = await fetch(`${API}/job/${job_id}`);
-            const j = await r.json() as CompareJob;
-            setComparePerMag(j.per_magnet ?? []);
-            setCompareProgress(j.progress ?? "");
-            if (j.status === "done") resolve(j);
-            else if (j.status === "error") reject(new Error(j.error ?? "compare-magnets failed."));
+            const j = await r.json().catch(() => ({ status: "error" })) as CompareJob;
+            if (r.ok) {
+              setComparePerMag(j.per_magnet ?? []);
+              setCompareProgress(j.progress ?? "");
+            }
+            const outcome = pollOutcome(r.status, j);
+            if (outcome === "done") resolve(j);
+            else if (outcome === "cancelled") reject(new Error(CANCELLED_TEXT));
+            else if (outcome === "gone") reject(new Error(JOB_GONE_TEXT));
+            else if (outcome === "error") reject(new Error(j.error ?? "compare-magnets failed."));
             else setTimeout(poll, 1000);
           } catch (e) { reject(e); }
         };
@@ -1186,7 +1230,7 @@ export default function App() {
           .map((r) => ({ ...r.analysis, magnet_uri: r.magnet_uri }));
         releaseAnalyses.forEach((a, i) => { a.batch_rank = i + 1; });
         setData(releaseAnalyses);
-        localStorage.setItem("last_results", JSON.stringify(releaseAnalyses));
+        try { localStorage.setItem("last_results", JSON.stringify(releaseAnalyses)); } catch { /* not persisted */ }
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "compare-magnets failed.");
@@ -1291,13 +1335,35 @@ export default function App() {
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
       <nav className="top-nav">
         <div className="nav-links">
+          {activeTab === "analyze" && <>
           <a href="#analyze">Analyze</a>
           {showDashboard && <a href="#dashboard">Dashboard</a>}
           {showDashboard && <a href="#tv-usb">TV &amp; USB</a>}
           <a href="#hierarchy">Hierarchy</a>
+          </>}
         </div>
         <Switch isLightMode={isLightMode} setIsLightMode={setIsLightMode} />
       </nav>
+
+      <div className="app-tabs" role="tablist" aria-label="Screens" onKeyDown={event => {
+        let next: AppTab;
+        if (event.key === "Home") next = "analyze";
+        else if (event.key === "End") next = "suite";
+        else if (event.key === "ArrowLeft" || event.key === "ArrowRight") next = activeTab === "analyze" ? "suite" : "analyze";
+        else return;
+        event.preventDefault();
+        selectTab(next);
+        document.getElementById(`tab-${next}`)?.focus();
+      }}>
+        <button type="button" role="tab" id="tab-analyze" aria-controls="panel-analyze" aria-selected={activeTab === "analyze"}
+                tabIndex={activeTab === "analyze" ? 0 : -1}
+                className={`app-tab ${activeTab === "analyze" ? "app-tab-active" : ""}`} onClick={() => selectTab("analyze")}>Analyze</button>
+        <button type="button" role="tab" id="tab-suite" aria-controls="panel-suite" aria-selected={activeTab === "suite"}
+                tabIndex={activeTab === "suite" ? 0 : -1}
+                className={`app-tab ${activeTab === "suite" ? "app-tab-active" : ""}`} onClick={() => selectTab("suite")}>Suite (all devices)</button>
+      </div>
+
+      <div id="panel-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden={activeTab !== "analyze"}>
 
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section id="analyze" className="hero-section">
@@ -1943,6 +2009,7 @@ export default function App() {
                   ? "Analysis Result"
                   : `Comparing ${data.length} Files`}
               </h2>
+              <span className="legacy-tag">legacy (Bravia only)</span>
               <p className="dash-sub">
                 Ranked by TV score for Sony Bravia 8 Mark II USB playback
               </p>
@@ -2036,10 +2103,13 @@ export default function App() {
       {/* ── TV & USB panels ─────────────────────────────────────────────── */}
       {showDashboard && (
         <section id="tv-usb" className="tv-usb-section">
+          <details className="legacy-panel">
+            <summary>TV &amp; USB panels <span className="legacy-tag">legacy (Bravia only)</span></summary>
           <div className="tv-usb-inner">
             <TVPanel items={data} />
             <USBPanel items={data} />
           </div>
+          </details>
         </section>
       )}
 
@@ -2121,6 +2191,7 @@ export default function App() {
                 </div>
               )}
               {item.insights       && <div className="insight-line">{item.insights}</div>}
+              {item.suite !== undefined && <MagnetSuiteBlock suite={item.suite} />}
 
               <div className="result-submeta">
                 <span>Analyzer: {item.dv_tool ?? "unknown"}</span>
@@ -2254,6 +2325,7 @@ export default function App() {
           </p>
         </div>
 
+        <details className="legacy-panel"><summary>Dolby Vision and HDR hierarchy <span className="legacy-tag">legacy (Bravia only)</span></summary>
         <div className="hierarchy-grid">
           <div className="hierarchy-card">
             <h3>Dolby Vision</h3>
@@ -2285,7 +2357,10 @@ export default function App() {
             </ol>
           </div>
         </div>
+        </details>
       </section>
+      </div>
+      {suiteOpened && <div id="panel-suite" role="tabpanel" aria-labelledby="tab-suite" hidden={activeTab !== "suite"}><SuiteBoundary><SuiteScreen /></SuiteBoundary></div>}
     </div>
   );
 }

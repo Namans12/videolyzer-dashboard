@@ -10,6 +10,7 @@
   --section-dark:  #000000;
   --section-light-text: #1d1d1f;
   --accent:        #0071e3;
+  --tab-active-bg: #0072e3;
   --accent-bright: #2997ff;
   /* Search-style inputs (single-line path + magnet fields).
      Dark mode uses the same neutral-near-black as macOS card-bg so the
@@ -68,6 +69,7 @@ html[data-theme="light"] .app-shell,
   --section-dark: #ddeaff;
   --card-bg:      rgba(255,255,255,0.92);
   --accent:       #0058cc;
+  --tab-active-bg: var(--accent);
   --accent-bright: #2266e3;
   /* Light mode: input bg matches the page bg so the field reads as flat
      into the page rather than a contrasting white box. */
@@ -1034,3 +1036,11 @@ html[data-theme="light"] .tool-card,
   .tv-dv-row { grid-template-columns: 80px 56px 1fr auto; }
   .tv-dv-match-dot { width: 9px; height: 9px; }
 }
+
+.app-tabs { display: flex; gap: 8px; padding: 12px 24px 0; max-width: 1100px; margin: 0 auto; }
+.app-tab { font: inherit; padding: 8px 16px; border: 1px solid var(--panel-border); border-radius: 999px; background: transparent; color: var(--page-text); cursor: pointer; }
+.app-tab-active { background: var(--tab-active-bg); color: var(--page-bg); border-color: var(--tab-active-bg); }
+.legacy-tag { font-size: 11px; margin-left: 8px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--severity-warn); color: var(--severity-warn); text-transform: uppercase; letter-spacing: .4px; vertical-align: middle; }
+.legacy-panel > summary { cursor: pointer; padding: 8px 0; color: var(--muted-text); }
+.episode-suite { margin-top: 8px; }
+.episode-suite-name { font-size: 12px; font-weight: 600; color: var(--page-text); overflow-wrap: anywhere; }

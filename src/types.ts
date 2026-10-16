@@ -1,3 +1,5 @@
+import type { MagnetSuiteResult } from "./suite/types";
+
 export interface FactItem {
   label: string;
   value: string;
@@ -11,6 +13,8 @@ export interface ToolReport {
 }
 
 export interface VideoData {
+  // VideoSuite result for a magnet file; legacy fields remain available.
+  suite?: MagnetSuiteResult;
   path: string;
   file: string;
 

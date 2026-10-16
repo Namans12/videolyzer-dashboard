@@ -1,7 +1,15 @@
 # Testing & Verification
 
 The backend has an automated pytest suite (`tests/`) plus the manual
-end-to-end recipes below. The frontend has no automated tests.
+end-to-end recipes below. The frontend has Vitest tests (see "Frontend tests").
+
+## Frontend tests
+
+Run `npm test` for the frontend suite, or `npm run test:watch` during development. Vitest uses jsdom and Testing Library for `src/**/*.test.{ts,tsx}`, through the same Vite/React Compiler plugins as the production build. Exact dev-tool versions are pinned in `package.json`; the installed jsdom requires Node 22.22.2 or a compatible newer supported version.
+
+Tests import real suite fixtures from `tests/fixtures/suite/` only through `src/suite/testing/fixtures.ts`, which returns fresh clones. Never edit those JSON fixtures by hand. Fetch is always mocked through `src/suite/testing/fetchMock.ts`; an unexpected request fails the test even when application code catches it. Polling tests use fake timers, with timer advances wrapped in React `act`; scheduled handoffs settle through separate render/effect flushes. `src/security.test.ts` scans frontend sources for HTML injection, evaluated code and non-loopback URLs.
+
+Run `npm run lint` and `npm run build` after frontend changes. The real-browser verification also checks the guarded backend against the installed suite, generated clips and the owner's explicitly authorized read-only file; unit tests never access owner media or start backend processes.
 
 ## Automated backend tests
 

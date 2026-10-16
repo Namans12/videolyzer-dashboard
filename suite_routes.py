@@ -1,6 +1,7 @@
 """``/suite/...`` endpoints: the installed VideoSuite as guarded Dashboard jobs.
 
 * ``GET  /suite/devices``  the CLI's device catalogue, cached 60 s (``reset_state`` clears it).
+* ``GET  /suite/settings`` the owner-settings facts of the cached devices document; same gate, cache and errors as ``/suite/devices``.
   503 ``SuiteUnavailable`` (or a process that cannot start), 504 timeout, 502 every other
   failure (exit code 2 = a suite older than 0.3.0 without ``devices``: 502 with ``DEVICES_TOO_OLD_DETAIL``).
   HTTP errors never carry stderr text.
@@ -30,7 +31,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import Annotated, Any, Callable, Dict, List, Literal, Optional
+from typing import Annotated, Any, Callable, Dict, List, Literal, Mapping, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -345,31 +346,94 @@ def suite_version_status(request: Request, refresh: bool = False) -> Any:
     return suite_version.ensure(suite_version._discover(factory), refresh=refresh)
 
 
-@router.get("/devices")
-def suite_devices(client: Any = Depends(get_suite_client)) -> Any:
-    global _devices_cache
-    version = suite_version.ensure(client)
-    if version["status"] == "too_old":
-        raise HTTPException(status_code=502, detail=version["message"])
+_fill_lock = threading.Lock()
+
+
+def _fresh_devices() -> Optional[dict]:
     with _cache_lock:
         cached = _devices_cache
         if cached is not None and _clock() - cached[0] < DEVICES_CACHE_SECONDS:
             return cached[1]
-    try:
-        doc = dict(client.devices())
-    except SuiteError as exc:
-        if exc.kind == "unavailable":
-            raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL) from None
-        if exc.kind == "timeout":
-            raise HTTPException(status_code=504, detail="VideoSuite timed out.") from None
-        if exc.kind == "usage":                         # exit code 2: an installed suite older than 0.3.0
-            raise HTTPException(status_code=502, detail=DEVICES_TOO_OLD_DETAIL) from None
-        if exc.kind == "contract":
-            raise HTTPException(status_code=502, detail="VideoSuite returned an unusable response.") from None
-        raise HTTPException(status_code=502, detail="VideoSuite failed.") from None
-    with _cache_lock:
-        _devices_cache = (_clock(), doc)
-    return doc
+    return None
+
+
+def _devices_document(client: Any) -> Dict[str, Any]:
+    """Version gate first; serialized cache fills; errors are never cached."""
+    global _devices_cache
+    version = suite_version.ensure(client)
+    if version["status"] == "too_old":
+        raise HTTPException(status_code=502, detail=version["message"])
+    doc = _fresh_devices()
+    if doc is not None:
+        return doc
+    with _fill_lock:
+        doc = _fresh_devices()
+        if doc is not None:
+            return doc
+        try:
+            doc = dict(client.devices())
+        except SuiteError as exc:
+            if exc.kind == "unavailable":
+                raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL) from None
+            if exc.kind == "timeout":
+                raise HTTPException(status_code=504, detail="VideoSuite timed out.") from None
+            if exc.kind == "usage":
+                raise HTTPException(status_code=502, detail=DEVICES_TOO_OLD_DETAIL) from None
+            if exc.kind == "contract":
+                raise HTTPException(status_code=502, detail="VideoSuite returned an unusable response.") from None
+            raise HTTPException(status_code=502, detail="VideoSuite failed.") from None
+        with _cache_lock:
+            _devices_cache = (_clock(), doc)
+        return doc
+
+
+@router.get("/devices")
+def suite_devices(client: Any = Depends(get_suite_client)) -> Any:
+    return _devices_document(client)
+
+
+def _opt_str(value: Any) -> Optional[str]:
+    return value if isinstance(value, str) else None
+
+
+def _list(value: Any) -> list:
+    return value if isinstance(value, list) else []
+
+
+def settings_view(doc: Mapping[str, Any]) -> Dict[str, Any]:
+    """Read-only settings facts; malformed optional values never cause a 500."""
+    block = doc.get("settings")
+    supported = isinstance(block, dict)
+    block = block if supported else {}
+    count = block.get("applied_count")
+    devices: Dict[str, Any] = {}
+    for dev in _list(doc.get("devices")):
+        if not isinstance(dev, dict) or not isinstance(dev.get("id"), str):
+            continue
+        own = dev.get("settings") if isinstance(dev.get("settings"), dict) else {}
+        overrides = []
+        for player in _list(dev.get("players")):
+            if not isinstance(player, dict):
+                continue
+            for item in _list(player.get("overrides")):
+                if isinstance(item, dict):
+                    overrides.append({"player": _opt_str(player.get("id")), "rule": _opt_str(item.get("rule")),
+                                      "source": _opt_str(item.get("source")), "reason": _opt_str(item.get("reason")),
+                                      "confidence": _opt_str(item.get("confidence"))})
+        devices[dev["id"]] = {"label": _opt_str(dev.get("label")) or dev["id"],
+                              "usb_filesystem": _opt_str(own.get("usb_filesystem")),
+                              "audio_output": _opt_str(own.get("audio_output")), "overrides": overrides}
+    return {"tool_version": _opt_str(doc.get("tool_version")), "supported": supported,
+            "path": _opt_str(block.get("path")), "loaded": block.get("loaded") is True,
+            "errors": [e for e in _list(block.get("errors")) if isinstance(e, str)],
+            "applied_count": count if isinstance(count, int) and not isinstance(count, bool) else 0,
+            "devices": devices}
+
+
+@router.get("/settings")
+def suite_settings(client: Any = Depends(get_suite_client)) -> Any:
+    """Owner settings reported by VideoSuite; never reads the settings file itself."""
+    return settings_view(_devices_document(client))
 
 
 def _take_slot(slot: str) -> None:

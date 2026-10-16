@@ -1,7 +1,7 @@
 # VideoSuite integration
 
 The Dashboard runs the installed VideoSuite (the Video Comparizer's `videosuite` package) as a
-subprocess and exposes it through five `/suite/...` routes. This page is the contract: what is
+subprocess and exposes it through six `/suite/...` routes. This page is the contract: what is
 run, what comes back, how failures are named. The code is `suite_client.py` (process and
 document handling) and `suite_routes.py` (HTTP, guards, jobs). Examples below are taken from the
 real fixtures in `tests/fixtures/suite/` (output of the CLI, tool_version `0.4.0`, run on three
@@ -182,6 +182,19 @@ Other 502 details: `VideoSuite returned an unusable response.` (`contract`) or `
 ```
 
 (The real document lists three devices: `galaxy_tab_s9_ultra`, `sony_bravia_8_ii`, `vivobook_pro_16x`.)
+
+### `GET /suite/settings`
+
+Read-only owner settings, derived from the `devices --json` document (the Dashboard never reads the settings file itself). Same version gate, 60 s cache and error mapping as `GET /suite/devices` (503 not installed, 504 timeout, 502 too old or other failure; never stderr text). Simultaneous `/suite/devices` and `/suite/settings` requests share one CLI read.
+
+```json
+{"tool_version": "0.4.0", "supported": true, "path": "C:\\fixtures\\suite\\no_settings.json", "loaded": false,
+ "errors": [], "applied_count": 0,
+ "devices": {"sony_bravia_8_ii": {"label": "Sony BRAVIA 8 II 65\" (K-65XR80M2 / K-65XR8M2), USB drive",
+             "usb_filesystem": null, "audio_output": null, "overrides": []}}}
+```
+
+`supported` is false when the suite's devices document has no `settings` block (a suite older than 0.4.0); `overrides` lists the applied rule overrides per player (`player`, `rule`, `source`, `reason`, `confidence`). Values of the wrong type are reported as `null`, wrong list types as empty lists, never as a 500.
 
 ### `POST /suite/score`
 
