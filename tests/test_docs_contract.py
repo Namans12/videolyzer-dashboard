@@ -140,6 +140,22 @@ def test_settings_route_is_registered_and_documented():
         assert "five `/suite/...` routes" not in text
 
 
+CALIBRATION_ROUTES = ("plan", "status", "session", "record", "build", "apply", "undo", "report")
+
+
+def test_calibration_routes_are_registered_and_documented_in_both_places():
+    contract = (ROOT / "docs" / "SUITE_INTEGRATION.md").read_text(encoding="utf-8")
+    registered = own_route_paths()
+    for name in CALIBRATION_ROUTES:
+        path = f"/suite/calibration/{name}"
+        assert path in registered
+        for text in (README, contract):
+            assert re.search(re.escape(path) + r"(?![\w{}/-])", text), path
+    for text in (README, contract):
+        assert "six `/suite/...` routes" not in text
+        assert "fourteen `/suite/...` routes" in text
+
+
 def test_readme_documents_the_suite_tab_and_frontend_tests():
     assert "## Suite tab" in README
     assert "npm test" in README
@@ -148,3 +164,37 @@ def test_readme_documents_the_suite_tab_and_frontend_tests():
     testing = (ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8")
     assert "npm test" in testing
     assert "The frontend has no automated tests." not in testing
+
+
+def test_calibration_workflow_gate_and_limits_are_documented():
+    section = README.split("## Calibration (TV)", 1)[1].split("\n## ", 1)[0]
+    for phrase in (
+        "third tab", "calibration` capability", "update VideoSuite to 0.5.0",
+        "Suite tab keeps working", "Prepare kit", "Confirm conditions",
+        "checklist table", "guided card", "Preview changes", "Apply", "Undo this kit",
+        "What changed", "playback only", "500 characters", "100 characters", "single-line",
+        "link or junction", "`&` or `%`", "before its first session",
+    ):
+        assert phrase in section, phrase
+    assert "Node.js 22.22.2 or newer" in README
+
+
+def test_calibration_modules_storage_and_test_coverage_are_documented():
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    integration = (ROOT / "docs" / "SUITE_INTEGRATION.md").read_text(encoding="utf-8")
+    testing = (ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8")
+    for module in (
+        "CalibrationScreen.tsx", "KitPanel.tsx", "ConditionsBar.tsx", "ChecklistTable.tsx",
+        "GuidedCard.tsx", "ApplyPanel.tsx", "useCalibration.ts", "types.ts", "api.ts",
+        "messages.ts", "calibration.css",
+    ):
+        assert f"`{module}`" in architecture, module
+    assert "src/suite/calibration/" in architecture
+    assert "calibration_routes.py" in architecture
+    for text in (README, integration):
+        for name in ("calibration.json", "settings.json", "calibration.lock", "settings.json.bak"):
+            assert f"`{name}`" in text, name
+    for phrase in ("rule_overrides", "read-only", "single-line", "500 characters", "100 characters"):
+        assert phrase in integration, phrase
+    for phrase in ("422 tests in 30 files", "checklist", "guided", "stale", "capability"):
+        assert phrase in testing, phrase

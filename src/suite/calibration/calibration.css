@@ -1,0 +1,14 @@
+/* Calibration (TV) tab. Layout only: every colour is an App/Suite token, so both themes keep their checked contrast. */
+.calibration-columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 20px; align-items: start; }
+.calibration-columns > * { min-width: 0; }
+@media (min-width: 900px) {
+  .calibration-columns { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+}
+.calibration-screen .calibration-gate, .calibration-screen .calibration-kit-note { margin: 20px 0; }
+/* The selected checklist row: an accent bar and weight, no new background (text keeps its section contrast). */
+.calibration-screen tr[aria-selected="true"] > td { font-weight: 600; }
+.calibration-screen tr[aria-selected="true"] > td:first-child { box-shadow: inset 4px 0 0 var(--accent); }
+.calibration-screen button[aria-pressed="true"] { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
+.calibration-screen button:focus-visible, .calibration-screen input:focus-visible, .calibration-screen textarea:focus-visible {
+  outline: 2px solid var(--accent-bright); outline-offset: 2px;
+}

@@ -25,6 +25,17 @@ SUITE_ROUTES = {
     "/suite/rank",
     "/suite/compare",
 }
+# Added by Plan 4A task D2 (calibration_routes.py): exactly these eight.
+CALIBRATION_ROUTES = {
+    "/suite/calibration/plan",
+    "/suite/calibration/status",
+    "/suite/calibration/session",
+    "/suite/calibration/record",
+    "/suite/calibration/build",
+    "/suite/calibration/apply",
+    "/suite/calibration/undo",
+    "/suite/calibration/report",
+}
 FRAMEWORK_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 
 
@@ -43,10 +54,11 @@ def test_app_has_its_twelve_own_routes():
         else:
             paths.add(getattr(r, "path", None))
     paths -= FRAMEWORK_ROUTES
-    assert paths - SUITE_ROUTES == EXPECTED_ROUTES
+    assert paths - SUITE_ROUTES - CALIBRATION_ROUTES == EXPECTED_ROUTES
     assert SUITE_ROUTES <= paths
-    assert paths == EXPECTED_ROUTES | SUITE_ROUTES
-    assert len(EXPECTED_ROUTES) == 12
+    assert CALIBRATION_ROUTES <= paths
+    assert paths == EXPECTED_ROUTES | SUITE_ROUTES | CALIBRATION_ROUTES      # exactly the new routes, nothing else
+    assert len(EXPECTED_ROUTES) == 12 and len(CALIBRATION_ROUTES) == 8
 
 
 @pytest.mark.parametrize(

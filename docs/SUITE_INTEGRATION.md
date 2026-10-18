@@ -1,9 +1,10 @@
 # VideoSuite integration
 
 The Dashboard runs the installed VideoSuite (the Video Comparizer's `videosuite` package) as a
-subprocess and exposes it through six `/suite/...` routes. This page is the contract: what is
+subprocess and exposes it through fourteen `/suite/...` routes. This page is the contract: what is
 run, what comes back, how failures are named. The code is `suite_client.py` (process and
-document handling) and `suite_routes.py` (HTTP, guards, jobs). Examples below are taken from the
+document handling), `suite_routes.py` (core HTTP, guards, jobs) and `calibration_routes.py`
+(calibration HTTP and output-link guards). Examples below are taken from the
 real fixtures in `tests/fixtures/suite/` (output of the CLI, tool_version `0.4.0`, run on three
 generated 10-second clips; paths shortened). JSON examples are abbreviated key layouts;
 the fixtures are authoritative for full current documents. Additive keys retain schema `/1`.
@@ -288,9 +289,105 @@ The pixel comparison runs for minutes to hours. The job's `current` shows the la
 }
 ```
 
+### Calibration routes (VideoSuite 0.5.0)
+
+Eight routes under `/suite/calibration/` drive the Bravia calibration kit: plan the tests, build the test files,
+record what the owner saw, then preview and apply the answers as owner settings. They need VideoSuite 0.5.0
+(capability `calibration`); an older suite answers 502 `suite_too_old` on the synchronous routes. The CLI documents
+(`videosuite-calibrate-<plan|build|session|record|status|apply|report>/1`) are returned unchanged; the client's
+commands are `calibrate_plan/build/status/session/record/apply/undo/report` (undo is `apply --undo`).
+Strict bodies (`extra="forbid"`); a 422 body lists only `type`, `loc` and `msg` (no `input`, no `ctx`).
+
+| Route | Body / query | Answer |
+| --- | --- | --- |
+| `POST /suite/calibration/plan` | `{"paths": [...], "players": [...], "deep_dv": false}`; `paths` 0 to 50, `players` optional (all when empty), `deep_dv` optional boolean | the plan document (200) when `deep_dv` is not true; `{"job_id"}` (kind `suite_calibration_plan`, cancellable, heavy) when it is |
+| `GET /suite/calibration/status` | `?kit=<id>` optional, `[A-Za-z0-9_.-]{1,128}` | the status document |
+| `POST /suite/calibration/session` | `{"out": "<kit folder>", "tv_software": "...", "audio_output": "tv_speakers\|soundbar\|avr", "usb_filesystem": "fat32\|exfat\|ntfs"}`; the last two optional (unknown) | the session document; the route resolves `<out>\kit.json` |
+| `POST /suite/calibration/record` | `{"kit", "test", "player", "outcome", "note"}`; `note` optional, at most 2000 characters, one line | the record document |
+| `POST /suite/calibration/build` | `{"paths": [...], "out": "<folder>", "players": [...], "tests": [...], "deep_dv": false}`; `tests` empty = every test | `{"job_id"}` (kind `suite_calibration_build`, heavy, progress lines as events) |
+| `POST /suite/calibration/apply` | `{"kit", "preview": true}` or `{"kit", "preview": false, "revision": "<from the preview>", "confirm_veto": ["<change id>", ...]}` | the apply document (`revision`, `changes`, `conflicts`, `skipped`) |
+| `POST /suite/calibration/undo` | `{"kit"}` | the apply document (`action: "undo"` / `"left"` rows) |
+| `POST /suite/calibration/report` | `{"kit", "paths": [...]}`; `paths` 1 to 50 | `{"job_id"}` (kind `suite_calibration_report`, playback only, read-only, takes a score/rank slot) |
+
+Rules:
+
+- **Source paths** are video files that need NOT exist, but their folder must (a missing folder, for example an
+  unplugged drive, is 404). The suite SKIPS a missing source: it contributes no record, and an excerpt test that
+  needs it is reported `needs_real_file`; nothing is planned from cached records of an offline file. The path guard's raw checks (UNC and device paths, alternate data streams, reserved
+  names, `VIDEOLYZER_ALLOWED_ROOTS`) and the client's checks (no control or line-separator characters, no surrounding
+  white space) apply: 400 / 403 / 404 as for `score`, no job is created. `out` follows the `compare` folder policy
+  (no `& ^ % ! " ' < > |`, control characters or more than 1000 characters; 400); for `build` it need not exist but its
+  parent must; for `session` it must be the existing kit folder. For `build` and `session`, `out` is also refused
+  (400 `out cannot be, or lie inside, a link or junction`) when it or any existing ancestor is a symlink or Windows
+  junction/reparse point; this is checked on the path as sent, before canonicalization (which would hide the link
+  from the suite's own output-safety check), and no job is created.
+- **Sync vs job.** Plan without `deep_dv`, `status`, `session`, `record`, `apply` and `undo` answer in the request
+  (the calibration sync client time limit is 60 s, exceeding the CLI's 30 s lock wait; plan uses the `score` formula: 60 s plus 45 s per file). Plan
+  with `deep_dv`, `build` and `report` are jobs (`GET /job/{id}`, cancel with `POST /job/{id}/cancel`: the process tree
+  is killed and the job ends `cancelled`; a job cancelled while queued never starts the CLI). The job `results` is the
+  CLI document. Time limits: plan/report `60 s + 45 s per file` (+ 900 s per file for a deep plan); build
+  `600 s + 120 s per test` (16 when `tests` is empty) (+ 900 s per file with `deep_dv`).
+- **Concurrency.** `build` and a `deep_dv` plan take the `calibration` slot: one heavy job at a time together with
+  `compare` and a deep-DV `score`, in both directions (409; texts in section 6). `report` takes a score/rank slot. The
+  synchronous routes take no slot; the suite's own OS lock serialises settings and store writers (a busy lock is 409
+  `calibration_busy`).
+- **Settings cache.** After `undo` and after a non-preview `apply` (also when it failed or timed out, because the
+  settings file may have changed) the cached `/suite/devices` + `/suite/settings` document is dropped under its fill
+  lock, so the next read shows the new overrides; it never frees job slots. A preview does not touch it.
+- **Errors of the synchronous routes** never carry stderr text: 503 (`{"detail": "VideoSuite is not installed ..."}`),
+  504 timeout, 502 `VideoSuite returned an unusable response.` / `VideoSuite failed.` / `suite_too_old`, 400
+  `{"detail": "VideoSuite refused the request.", "code": "refused"}` (for example an unknown kit, an answer for a test
+  that is not in the kit, no session recorded, a veto id that is not part of the preview), and 409 with a `code` for
+  the store's own refusals: `store_damaged` (the store was left unchanged), `recovery_required` (an interrupted apply
+  left settings matching neither state), `calibration_busy`, `stale_revision` (preview again), `settings_changed`
+  ("The settings file changed while applying. Preview and apply again."), `settings_refused`
+  (`settings.json` is not a usable settings document). A 200 document with `recovery_required: true` is data: the next
+  apply or undo resolves the pending transaction first.
+- A job's failure is an ordinary suite job error (`error_kind`, `error_detail`, `exit_code`).
+
+### Calibration screen and persistent writes
+
+The third tab, **Calibration (TV)**, requires the `calibration` capability from
+VideoSuite 0.5.0. An installed 0.3/0.4 suite shows the update message only in this tab;
+the core Suite tab keeps working. The screen loads version first and sends no
+calibration requests without that capability. Its modules live in
+`src/suite/calibration/` (see `ARCHITECTURE.md`).
+
+The flow is prepare kit → confirm TV conditions → checklist table and guided card →
+preview/apply/undo → **What changed**. Predictions are frozen in the kit descriptor;
+saved answers retain their measured conditions. The UI's optional note is single-line,
+limited to 500 characters; TV software is single-line, limited to 100 characters.
+These are frontend limits: the HTTP models allow 2000/200 characters respectively,
+with the client refusing control characters and line separators. Audio output and
+USB filesystem come from owner settings and are read-only in the conditions bar.
+
+VideoSuite owns these writes; the Dashboard invokes its commands rather than editing
+the files itself:
+
+| File | Written content / safety |
+| --- | --- |
+| `calibration.json` | Kit descriptors, confirmed sessions, answers and embedded apply/undo transactions; damaged stores are refused. |
+| `settings.json` | Scoped `rule_overrides` entries from eligible decisive answers; other settings retain their content and order semantically. Missing settings may be created; unusable settings are refused. |
+| `calibration.lock` | OS-managed exclusive lock beside settings for store/settings mutations; released when the process exits. |
+| `settings.json.bak` | Exact original settings bytes before replacing an existing settings file. |
+
+The kit output holds clips and `kit.json`, published last, plus build lock/staging
+files during construction. The existing folder policy rejects `&` and `%` (and the
+other forbidden folder characters listed above). Build/session refuse an output
+folder that is, or has an existing ancestor that is, a link, symlink or junction,
+before canonicalization. VideoSuite additionally checks source/package/repository
+separation and existing planned names.
+
+Preview, status and report are read-only. Apply uses the displayed revision and
+individually confirmed veto ids; stale revisions require another preview. Unknown,
+unsure, skipped, informational, conflicting or differently measured answers cannot
+be promoted to owner evidence. Undo removes only entries still equal to this kit's
+writes. The What changed report is playback only, not a quality ranking, never
+writes the record cache and does not attribute later changes to an inactive kit.
+
 ## 5. Job results and errors
 
-Suite jobs (`kind` `suite_score`, `suite_rank`, `suite_compare`) answer HTTP 200 on `GET /job/{id}` whatever happened; read `status`. (The two job examples below show the key layout with invented timestamps and file names; the `results` document is the real CLI output shown in section 4.)
+Suite jobs (`kind` `suite_score`, `suite_rank`, `suite_compare`, and the calibration kinds above) answer HTTP 200 on `GET /job/{id}` whatever happened; read `status`. (The two job examples below show the key layout with invented timestamps and file names; the `results` document is the real CLI output shown in section 4.)
 
 Done:
 
@@ -325,6 +422,13 @@ released in `finally`; rejection creates no job. Capacity has precedence:
 `a comparison is already running`. Other heavy conflicts name the active job:
 `a comparison is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`
 or `a deep Dolby Vision scan is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`.
+
+The `calibration` slot (a calibration build or a deep-DV calibration plan) is heavy too and exclusive with both of
+those, in both directions, and with itself: 409 `a calibration kit job is already running` for a second one; when
+the other side is involved the running job is named and the text ends
+`; only one heavy job (a picture comparison, a deep Dolby Vision scan or a calibration kit job) runs at a time`.
+It takes no score/rank capacity, is not blocked by a full score/rank cap, and is released in `finally`; a calibration
+report takes one score/rank slot and no heavy slot. Rejection creates no job.
 
 Magnets are not heavy. `magnet_suite.py` scores at most 8 retained probes
 sequentially alongside a heavy job. The torrent is paused first. Its 300 s clock

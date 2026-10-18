@@ -1,5 +1,5 @@
 import { defineConfig, mergeConfig } from "vitest/config";
-import viteConfig from "./vite.config";
+import viteConfig from "./vite.config.ts";
 
 // Tests run through the same plugins as the build (React Compiler included, Ruling R18).
 export default mergeConfig(

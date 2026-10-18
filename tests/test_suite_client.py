@@ -1447,3 +1447,283 @@ def test_d5_exhausted_cleanup_does_not_close_active_pipe_inline(monkeypatch, gua
         for reader in readers:
             reader.join(2)
         stdout.close()
+
+
+# Plan 4A D1: frozen CLI documents, deliberately independent of engine imports.
+_CAL_KIT = "a" * 12 + "-" + "b" * 64
+_CAL_VETO = "T01:builtin_usb:hdr_map.dv_p8_1@mp4"
+_CAL_PATHS = ["C:\\Тест & 100%\\movie.mkv"]
+
+
+def calibration_doc(sub):
+    prediction = dict(outcome=None, text="unknown", evidence="inferred")
+    descriptor = dict(test="T01", player="builtin_usb", title="Banner", **{"class": "decisive"},
+                      rule="hdr_map.dv_p8_1@mp4", instruction="Play", question="Banner?",
+                      outcomes=[dict(id="yes", text="Yes", value={"out": "DV", "risk": None, "qoe": "KEEP"})],
+                      conditions=["audio_output"], manual=False, file="clip.mp4",
+                      source=dict(kind="invented", file=None, verification=None), prediction=prediction)
+    session = dict(tv_software="V1", audio_output=None, usb_filesystem=None, confirmed_at="today")
+    summary = dict(done=1, total=1, matches=0, differs=0)
+    answer = dict(kit_id=_CAL_KIT, test="T01", player="builtin_usb", outcome="unsure", note="",
+                  conditions=dict(audio_output=None, usb_filesystem=None, tv_software="V1"),
+                  at="today", older_tv_software=False, match="unsure")
+    side = dict(verdict="PLAYS_WELL", score=90, evidence="owner", effective_audio=None, effective_hdr="DV")
+    bodies = {
+        "plan": dict(catalogue_version=1, players=["builtin_usb"], tests=[dict(test="T01", title="Banner",
+            **{"class": "decisive"}, players=["builtin_usb"], manual=False, instruction="Play", question="Banner?",
+            outcomes=[dict(id="yes", text="Yes")], prediction={"builtin_usb": prediction},
+            source=dict(kind="invented", status="ready", file=None, est_bytes=None, reason=None))]),
+        "build": dict(kit_id=_CAL_KIT, out="C:\\kit", descriptor_path="C:\\kit\\kit.json", total_bytes=123,
+                      descriptors=[descriptor], unavailable=[dict(test="T02", reason="no source")]),
+        "session": dict(kit_id=_CAL_KIT, session=session),
+        "record": dict(answer=answer, summary=summary),
+        "status": dict(recovery_required=False, kit=dict(id=_CAL_KIT, catalogue_version=1, built_at="today",
+                      out="C:\\kit", descriptors=[descriptor]), session=session, answers=[answer], summary=summary),
+        "apply": dict(revision="c" * 64, applied=False, recovery_required=False,
+            changes=[dict(id=_CAL_VETO, test="T01", player="builtin_usb", rule="hdr_map.dv_p8_1@mp4",
+                          action="veto", reason="silent", previous=None, value="silent", veto=True)],
+            conflicts=[dict(rule="audio_map.aac", player="builtin_usb", tests=["T01", "T02"])],
+            skipped=[dict(test="T02", player="builtin_usb", reason="unsure")]),
+        "report": dict(note="playback only, not a quality ranking", kit_active=True, recovery_required=False,
+            files=[dict(path=_CAL_PATHS[0], player="tv/builtin_usb", before=side, after=side, changed=False)],
+            best_player_changes=[dict(path=_CAL_PATHS[0], device="tv", before=dict(player="a", verdict="RISKY"),
+                                      after=dict(player="b", verdict="PLAYS_WELL"))]),
+    }
+    return dict(schema=f"videosuite-calibrate-{sub}/1", tool_version="0.5.0", **bodies[sub])
+
+
+def calibration_call(client, sub, **kwargs):
+    calls = {
+        "plan": lambda: client.calibrate_plan(_CAL_PATHS, ["builtin_usb", "kodi"], **kwargs),
+        "build": lambda: client.calibrate_build(_CAL_PATHS, "C:\\kit", ["builtin_usb", "kodi"], ["T01", "T02"], **kwargs),
+        "session": lambda: client.calibrate_session("C:\\kit", "V & 100% Тест", "tv_speakers", "exfat"),
+        "record": lambda: client.calibrate_record(_CAL_KIT, "T01", "builtin_usb", "unsure", "Тест & 100%"),
+        "status": lambda: client.calibrate_status(_CAL_KIT),
+        "apply": lambda: client.calibrate_apply(_CAL_KIT, preview=False, revision="c" * 64, confirm_veto=[_CAL_VETO]),
+        "undo": lambda: client.calibrate_undo(_CAL_KIT),
+        "report": lambda: client.calibrate_report(_CAL_KIT, _CAL_PATHS, **kwargs),
+    }
+    return calls[sub]()
+
+
+@pytest.mark.parametrize("sub", ["plan", "build", "session", "record", "status", "apply", "undo", "report"])
+def test_calibration_argv_documents_and_timeouts(sub, monkeypatch):
+    command = "apply" if sub == "undo" else sub
+    pop = FakePopen(FakeProc(stdout=json.dumps(calibration_doc(command)).encode(), stderr=b"progress\n"))
+    client = make_client(pop)
+    runs = []
+    original = client._run
+    def capture(command, args, timeout, **kwargs):
+        runs.append((command, timeout))
+        return original(command, args, timeout, **kwargs)
+    monkeypatch.setattr(client, "_run", capture)
+    lines = []
+    kwargs = {"deep_dv": True} if sub in ("plan", "build") else {}
+    if sub in ("build", "report"):
+        kwargs["on_line"] = lines.append
+    result = calibration_call(client, sub, **kwargs)
+    assert result == calibration_doc(command)
+    assert pop.argv[:5] == ["PY", "-m", "videosuite", "calibrate", command]
+    assert "--json" in pop.argv and pop.calls[0][1]["shell"] is False
+    expected_timeout = {"plan": 1005, "build": 1740, "report": 105}.get(sub, 60)
+    assert runs == [(f"calibrate-{command}", expected_timeout)]
+    if sub in ("plan", "build", "report"):
+        assert pop.list_text == ("\n".join(_CAL_PATHS) + "\n").encode()
+        assert _CAL_PATHS[0] not in pop.argv and not pop.list_dir.exists()
+    if sub in ("plan", "build"):
+        assert "--deep-dv" in pop.argv
+        assert "--player=builtin_usb" in pop.argv and "--player=kodi" in pop.argv
+    if sub == "build":
+        assert "--tests=T01,T02" in pop.argv and "--out=C:\\kit" in pop.argv and "--yes" in pop.argv
+        assert result["total_bytes"] == 123
+    if sub == "session":
+        assert "--kit-file=C:\\kit\\kit.json" in pop.argv
+        assert "--tv-software=V & 100% Тест" in pop.argv
+        assert "--audio-output=tv_speakers" in pop.argv and "--usb-fs=exfat" in pop.argv
+    if sub == "record":
+        assert "--note=Тест & 100%" in pop.argv and "--outcome=unsure" in pop.argv and "--test=T01" in pop.argv
+    if sub == "apply":
+        assert f"--confirm-veto={_CAL_VETO}" in pop.argv and "--revision=" + "c" * 64 in pop.argv
+    if sub == "undo":
+        assert f"--undo={_CAL_KIT}" in pop.argv and not any(a.startswith("--kit=") for a in pop.argv)
+    if sub in ("build", "report"):
+        assert lines == ["progress"]
+
+
+def _calibration_required_paths(value, prefix=()):
+    # Values/previous/verification are opaque JSON; all other frozen keys are required.
+    if isinstance(value, dict):
+        for key, child in value.items():
+            yield prefix + (key,)
+            if key not in ("value", "previous", "verification"):
+                yield from _calibration_required_paths(child, prefix + (key,))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _calibration_required_paths(child, prefix + (index,))
+
+
+_CAL_SUBS = ["plan", "build", "session", "record", "status", "apply", "report"]
+_CAL_REQUIRED_CASES = [(sub, path, invalid) for sub in _CAL_SUBS
+                       for path in _calibration_required_paths(calibration_doc(sub))
+                       for invalid in (False, True)
+                       if not (invalid and path[-1] in ("value", "previous", "verification"))]
+
+
+@pytest.mark.parametrize("sub,path,invalid", _CAL_REQUIRED_CASES)
+def test_calibration_contract_required_nested_fields(sub, path, invalid):
+    doc = calibration_doc(sub)
+    row = doc
+    for part in path[:-1]:
+        row = row[part]
+    if invalid:
+        row[path[-1]] = [] if not isinstance(row[path[-1]], list) else {}
+    else:
+        del row[path[-1]]
+    with pytest.raises(SuiteError) as error:
+        suite_client.parse_document(f"calibrate-{sub}", json.dumps(doc).encode())
+    assert error.value.kind == "contract"
+
+
+@pytest.mark.parametrize("sub", _CAL_SUBS)
+def test_calibration_contract_additions_and_oversize(sub):
+    doc = calibration_doc(sub)
+    doc["future"] = {"anything": True}
+    if sub == "status":
+        doc.update(kit=None, session=None, answers=[])
+    assert suite_client.parse_document(f"calibrate-{sub}", json.dumps(doc).encode()) == doc
+    with pytest.raises(SuiteError) as error:
+        suite_client.parse_document(f"calibrate-{sub}", b"", oversize=True)
+    assert error.value.kind == "contract"
+
+
+@pytest.mark.parametrize("sub", ["plan", "build", "report"])
+@pytest.mark.parametrize("reason", ["timeout", "cancel", "oversize"])
+def test_calibration_process_cleanup(sub, reason, monkeypatch):
+    monkeypatch.setattr(suite_client, "MAX_STDOUT_BYTES", 32)
+    proc = FakeProc(stdout=b"x" * 33 if reason == "oversize" else b"", hang=True)
+    pop, killed = FakePopen(proc), []
+    client = make_client(pop, killer=lambda pid: (killed.append(pid), proc.die(1)),
+                         clock=StepClock(100000) if reason == "timeout" else None)
+    kwargs = {"cancel": lambda: True} if reason == "cancel" else {}
+    if reason == "cancel":
+        assert calibration_call(client, sub, **kwargs) is None
+    else:
+        with pytest.raises(SuiteError) as error:
+            calibration_call(client, sub)
+        assert error.value.kind == ("contract" if reason == "oversize" else "timeout")
+    assert killed == [4242] and not pop.list_dir.exists()
+
+
+@pytest.mark.parametrize("sub", _CAL_SUBS)
+def test_calibration_failed_refusal_is_suite_error(sub):
+    pop = FakePopen(FakeProc(rc=1, stderr=b"videosuite: damaged store; recovery refused\n"))
+    with pytest.raises(SuiteError) as error:
+        calibration_call(make_client(pop), sub)
+    assert error.value.kind == "failed" and error.value.exit_code == 1
+    assert "damaged store" in error.value.stderr_tail
+
+
+def test_calibration_empty_paths_preview_latest_and_unknown_conditions():
+    for sub in ("plan", "build"):
+        pop = FakePopen(FakeProc(stdout=json.dumps(calibration_doc(sub)).encode()))
+        client = make_client(pop)
+        if sub == "plan":
+            client.calibrate_plan([], [])
+        else:
+            client.calibrate_build([], "C:\\kit", [], [])
+        # The CLI rejects an empty --list file; no sources means omit --list.
+        assert "--list" not in pop.argv and pop.list_text is None
+    pop = FakePopen(*(FakeProc(stdout=json.dumps(calibration_doc(s)).encode()) for s in ("apply", "status", "session")))
+    client = make_client(pop)
+    client.calibrate_apply(_CAL_KIT, preview=True)
+    assert "--preview" in pop.argv
+    client.calibrate_status()
+    assert not any(a.startswith("--kit") for a in pop.argv)
+    client.calibrate_session("C:\\kit", "V1", None, None)
+    assert not any(a.startswith(("--audio-output", "--usb-fs")) for a in pop.argv)
+
+
+@pytest.mark.parametrize("call", [
+    lambda c: c.calibrate_plan("file", []),
+    lambda c: c.calibrate_plan([], "builtin_usb"),
+    lambda c: c.calibrate_plan([], ["bad\nplayer"]),
+    lambda c: c.calibrate_build([], "C:\\bad&dir", [], []),
+    lambda c: c.calibrate_build([], "C:\\kit", [], ["T01,T02"]),
+    lambda c: c.calibrate_session("C:\\bad%dir", "V1", None, None),
+    lambda c: c.calibrate_session("C:\\kit", "", None, None),
+    lambda c: c.calibrate_session("C:\\kit", "V1", "bad", None),
+    lambda c: c.calibrate_session("C:\\kit", "V1", None, "bad"),
+    lambda c: c.calibrate_record("bad\nkit", "T01", "p", "yes"),
+    lambda c: c.calibrate_record(_CAL_KIT, "T01", "p", "yes", "bad\x00note"),
+    lambda c: c.calibrate_status("bad\nkit"),
+    lambda c: c.calibrate_apply(_CAL_KIT, preview=False),
+    lambda c: c.calibrate_apply(_CAL_KIT, preview=True, revision="rev"),
+    lambda c: c.calibrate_apply(_CAL_KIT, preview=False, revision="rev", confirm_veto=["bad,id"]),
+    lambda c: c.calibrate_report(_CAL_KIT, []),
+])
+def test_calibration_bad_arguments_never_spawn(call):
+    with pytest.raises(SuiteArgumentError):
+        call(make_client(_no_call))
+
+
+@pytest.mark.parametrize("sub,path,value", [
+    ("plan", "catalogue_version", True), ("plan", "players", [1]),
+    ("plan", "tests.0.class", "other"), ("plan", "tests.0.manual", 1),
+    ("plan", "tests.0.source.kind", "other"), ("plan", "tests.0.source.status", "other"),
+    ("plan", "tests.0.source.est_bytes", True), ("plan", "tests.0.source.est_bytes", -1),
+    ("build", "total_bytes", True), ("build", "total_bytes", -1),
+    ("build", "descriptors.0.conditions", [1]), ("build", "descriptors.0.source.verification", "yes"),
+    ("record", "summary.done", True), ("record", "summary.total", -1),
+    ("record", "answer.match", "other"), ("record", "answer.older_tv_software", 1),
+    ("status", "recovery_required", 1), ("status", "kit.catalogue_version", True),
+    ("apply", "applied", 1), ("apply", "recovery_required", 1), ("apply", "changes.0.veto", 1),
+    ("apply", "changes.0.action", "other"), ("apply", "conflicts.0.tests", [1]),
+    ("report", "note", "quality ranking"), ("report", "kit_active", 1),
+    ("report", "recovery_required", 1), ("report", "files.0.before.score", True),
+    ("report", "files.0.after.verdict", "other"), ("report", "files.0.changed", 1),
+])
+def test_calibration_contract_rejects_invalid_values(sub, path, value):
+    doc = calibration_doc(sub)
+    row = doc
+    parts = path.split(".")
+    for part in parts[:-1]:
+        row = row[int(part) if isinstance(row, list) else part]
+    row[parts[-1]] = value
+    with pytest.raises(SuiteError) as error:
+        suite_client.parse_document(f"calibrate-{sub}", json.dumps(doc).encode())
+    assert error.value.kind == "contract"
+
+
+@pytest.mark.parametrize("sub", ["plan", "build", "report"])
+def test_calibration_callback_exception_kills_and_cleans(sub):
+    proc = FakeProc(hang=True)
+    pop, killed = FakePopen(proc), []
+    def cancel():
+        raise RuntimeError("cancel callback failed")
+    client = make_client(pop, killer=lambda pid: (killed.append(pid), proc.die(1)))
+    with pytest.raises(RuntimeError, match="cancel callback failed"):
+        calibration_call(client, sub, cancel=cancel)
+    assert killed == [4242] and not pop.list_dir.exists()
+
+
+@pytest.mark.parametrize("sub", _CAL_SUBS)
+def test_calibration_accepts_nested_additions(sub):
+    def extend(value):
+        if isinstance(value, dict):
+            for child in list(value.values()):
+                extend(child)
+            value["future"] = {"extra": None}
+        elif isinstance(value, list):
+            for child in value:
+                extend(child)
+    doc = calibration_doc(sub)
+    # Prediction is a player-keyed mapping rather than a structured row.
+    if sub == "plan":
+        row = doc["tests"][0]
+        for value in list(row.values()):
+            if value is not row["prediction"]:
+                extend(value)
+        extend(row["prediction"]["builtin_usb"])
+    else:
+        extend(doc)
+    assert suite_client.parse_document(f"calibrate-{sub}", json.dumps(doc).encode()) == doc

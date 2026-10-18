@@ -49,6 +49,7 @@ videolyzer-dashboard/
   path_guard.py        # Validation of every server-local path
   suite_client.py      # Subprocess client for the VideoSuite CLI (validates videosuite-<cmd>/1 JSON)
   suite_routes.py      # /suite/version, /suite/devices, /suite/settings, /suite/score, /suite/rank, /suite/compare
+  calibration_routes.py # /suite/calibration/plan, status, session, record, build, apply, undo, report
   suite_version.py     # Version handshake, capability gates and cached startup check
   magnet_suite.py      # Bounded, nonfatal scoring of retained partial magnet files
   proc_guard.py        # Windows kill-on-close Job Object for suite children
@@ -67,7 +68,7 @@ videolyzer-dashboard/
 
 Install these before running:
 
-- Node.js 20+
+- Node.js 22.22.2 or newer (22.x), 24.15+ or 26+ (the test tools need it; running and building alone work from 20.19+ or 22.12+)
 - Python 3.11+
 - FFmpeg (must include ffmpeg + ffprobe on PATH)
 - MediaInfo CLI (mediainfo on PATH)
@@ -206,6 +207,22 @@ Evidence (weakest rule used): official = the maker's documentation; owner = test
 
 Owner settings are read-only (`/suite/settings`). The latest completed run's settings block is labelled separately from device facts from the last settings check; **Check again** may reuse a cached document for up to 60 seconds. Magnet results, including every expanded series episode's releases, show their own VideoSuite block. The **Analyze** view is the legacy Bravia-only view; its reference TV/USB and HDR hierarchy panels start collapsed. Switching tabs preserves typed inputs and running jobs.
 
+## Calibration (TV)
+
+The third tab, **Calibration (TV)**, checks playback on your Sony Bravia 8 II. It requires the `calibration` capability from VideoSuite 0.5.0. With an installed 0.3/0.4 suite it says "Please update VideoSuite to 0.5.0 to use calibration." The Suite tab keeps working; the Calibration tab sends no calibration requests until the capability is available.
+
+1. **Plan kit** previews tests and the estimated total size; **Prepare kit** is enabled after a plan for the current paths and scan options is shown, and builds the test files and `kit.json`. Paste up to 50 source video paths, or leave them empty for tests that need no source. Use a separate local output folder without `&` or `%`. Build and session refuse an output folder that is, or lies inside, a link or junction; VideoSuite also checks separation from source/repository folders and refuses to replace existing kit files. A deep Dolby Vision scan verifies FEL/MEL for that run.
+2. **Confirm conditions** after checking the TV software, audio output and USB file system. Audio/USB values come from owner settings; change them there and use **Check settings again**. The TV-software input is single-line and limited to 100 characters. Answers keep their recorded conditions; older TV software needs fresh answers, and unknown or different required conditions cannot become applied evidence.
+3. Tick results by selecting a test in the **checklist table** and answering in the **guided card**. Both show the frozen prediction and evidence word. The card provides playback instructions, observed-outcome buttons, **Not sure**, **Skip**, Back/Next and a single-line optional note limited to 500 characters. Saved outcomes, match status and progress come from the store.
+4. **Preview changes**, inspect each action/reason, then **Apply** the displayed revision. Silent/unsupported vetoes each need a checkbox and a separate confirmation button; unconfirmed vetoes are skipped. Unsure, informational, skipped and conflicting answers do not become owner evidence. Changed answers/settings invalidate the preview; a refused apply refreshes it for review. **Undo this kit** leaves later changed entries alone and reports them.
+5. **What changed** accepts local video paths and shows before/after playback verdict, score, evidence, audio, HDR and best-player changes. It is read-only, playback only, not a quality ranking. An undone or replaced kit is labelled inactive and gets no later-change attribution.
+
+If settings change during apply, HTTP 409 `settings_changed` says: "The settings file changed while applying. Preview and apply again." Review the refreshed preview before retrying. Undo remains available with a loaded kit even when conditions differ or owner settings have errors; it waits for ongoing checks and operations.
+
+VideoSuite writes sessions, answers and apply/undo transactions to `calibration.json`; apply/undo update scoped `rule_overrides` entries in `settings.json`, preserving other settings semantically. Writers use the OS-managed `calibration.lock` beside settings and back up existing settings bytes to `settings.json.bak`. Preview, status and report are read-only. Kit files are written only in the selected output folder; see the route and safety contract in [Suite integration](docs/SUITE_INTEGRATION.md).
+
+The tab stays mounted after its first visit. The remembered kit id is saved in browser storage and saved answers reload from VideoSuite. Reloading after a build but before its first session loses the browser's pending descriptor: start that session from the CLI with `calibrate session --kit-file <out>\kit.json` or rebuild. Confirm conditions before reloading a newly built kit.
+
 ## API Endpoints
 
 Every route passes the request guard; every route that takes a server-local path also passes the path guard (see Security model). Routes exposed by the backend:
@@ -228,14 +245,27 @@ Every route passes the request guard; every route that takes a server-local path
 - POST /suite/rank - quality + playback ranking of 1 to 50 video files using an existing folder of Comparizer reports (job)
 - POST /suite/compare - pixel comparison of 1 to 50 video files into an output folder (job, one at a time)
 
-The six `/suite/...` routes are described in `docs/SUITE_INTEGRATION.md` (request bodies, response documents, error kinds, exit codes). A `/suite` job POST answers 503 `{"detail": "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"}` and creates no job when the suite is not installed.
+- POST /suite/calibration/plan - plan a calibration kit for the owner's TV (needs videosuite 0.5.0): answers the plan document at once, or `{job_id}` (a cancellable job) when `deep_dv` is true; a source file may be missing (its folder must exist): it is skipped and its excerpt tests are reported `needs_real_file`
+- GET /suite/calibration/status - the calibration store's view of the latest (or `?kit=`) kit: descriptors, session, answers, `recovery_required`
+- POST /suite/calibration/session - record the conditions the owner confirmed (TV software, audio output, USB file system) for the kit folder `out` (refused when `out` is or sits inside a link or junction)
+- POST /suite/calibration/record - record one answer (`kit`, `test`, `player`, `outcome`, `note`)
+- POST /suite/calibration/build - build the kit's test files into an output folder (job, heavy: one at a time with a comparison or a deep-DV score; `out` may not be or sit inside a link or junction)
+- POST /suite/calibration/apply - preview (`preview: true`) or apply (`revision` from the preview, `confirm_veto` ids) the recorded answers as owner settings
+- POST /suite/calibration/undo - undo a kit's applied settings
+- POST /suite/calibration/report - playback-only before/after report of files for a kit (job; not a quality ranking)
+
+The fourteen `/suite/...` routes are described in `docs/SUITE_INTEGRATION.md` (request bodies, response documents, error kinds, exit codes). A `/suite` job POST answers 503 `{"detail": "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"}` and creates no job when the suite is not installed.
 
 Heavy jobs are `suite_compare` and `suite_score` with `deep_dv: true`: only one
 runs at a time. A second comparison gets 409 `a comparison is already running`.
 Other heavy-job conflicts get 409 `a comparison is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`
 or `a deep Dolby Vision scan is already running; only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time`, naming the active job.
+A calibration kit build and a deep-DV calibration plan (`suite_calibration_build`, `suite_calibration_plan`) are heavy too:
+one heavy job at a time in total, 409 both ways (`a calibration kit job is already running`, or the
+running job named followed by `; only one heavy job (a picture comparison, a deep Dolby Vision scan or a calibration kit job) runs at a time`).
 At most two score/rank jobs run together; exceeding that gets 409
-`too many suite jobs are running` (this capacity check takes precedence).
+`too many suite jobs are running` (this capacity check takes precedence; calibration build/plan take no
+score/rank capacity, a calibration report takes one).
 Magnet jobs are not heavy: their short, sequential partial scores can run beside a heavy job.
 
 Compare timeout uses a valid positive `VIDEOSUITE_COMPARE_TIMEOUT_S` exactly.
@@ -260,7 +290,7 @@ an active daemon reader's pipe can remain pending EOF/garbage collection.
 
 `GET /job/{job_id}` returns `status` `running`, `done`, `error` or `cancelled` (the last three are terminal), plus the extra keys `kind` and `error_kind`. Suite jobs add `error_detail` when the CLI wrote to stderr and `exit_code` when the CLI got as far as exiting.
 
-- `kind`: `single`, `batch`, `path`, `magnet`, `compare`, `suite_score`, `suite_rank`, `suite_compare`.
+- `kind`: `single`, `batch`, `path`, `magnet`, `compare`, `suite_score`, `suite_rank`, `suite_compare`, `suite_calibration_plan`, `suite_calibration_build`, `suite_calibration_report`.
 - `error_kind` (set only while `status` is `error`, otherwise `null`):
   - Upload, path and magnet jobs: `timeout` (analysis timed out or returned nothing, or the magnet job timed out), `analysis_failed` (every file failed or the analyser raised), `no_files` (no video file in the folder), `unavailable` (libtorrent is not installed), `busy` (all 119 torrent ports, 6881-6999, are in use), `no_analyses` (a magnet comparison produced nothing comparable), `internal` (anything unexpected; the text in `error` is the exception message for magnet, magnet-comparison and folder jobs).
   - Suite jobs: the CLI client kinds `usage` (exit 2 or a rejected value), `no_files` (exit 3), `ffprobe_missing` (exit 4), `failed_pairs` (compare exit 1, results kept), `contract` (malformed, unversioned or oversized CLI JSON), `timeout`, `failed` (any other exit code), `unavailable` (process could not be started), plus `busy` (the concurrency slot was taken when the runner started) and `internal` (unexpected exception; the message is a fixed string, no exception text).

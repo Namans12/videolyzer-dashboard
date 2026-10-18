@@ -44,7 +44,7 @@ export function errorSentence(err: unknown): string {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-async function request<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
+export async function request<T>(path: string, init: RequestInit, signal?: AbortSignal): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API}${path}`, { ...init, signal });
@@ -64,7 +64,7 @@ async function request<T>(path: string, init: RequestInit, signal?: AbortSignal)
   return body as T;
 }
 
-async function startJob(path: string, body: unknown, signal?: AbortSignal): Promise<JobStarted> {
+export async function startJob(path: string, body: unknown, signal?: AbortSignal): Promise<JobStarted> {
   const out = await request<{ job_id?: unknown }>(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, signal);
   if (typeof out.job_id !== "string" || out.job_id === "") throw new SuiteApiError(200, "", "bad_response");
   return { job_id: out.job_id };

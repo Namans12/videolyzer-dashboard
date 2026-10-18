@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apiErrorKind, cancelJob, errorSentence, getDevices, getJob, getSettings, getVersion,
-  postCompare, postRank, postScore, SuiteApiError,
+  postCompare, postRank, postScore, request, startJob, SuiteApiError,
 } from "./api";
 import { API } from "./config";
 import { bodyOf, callsTo, installFetch, jsonResponse, unexpectedFetch } from "./testing/fetchMock";
@@ -15,6 +15,15 @@ const paths = [
 const networkSentence = "The Dashboard backend is not answering (is it running on http://127.0.0.1:8000?).";
 
 describe("suite HTTP client", () => {
+  it("exports the unchanged request and job-start helpers for calibration", async () => {
+    const signal = new AbortController().signal;
+    const fetch = installFetch(url => url === `${API}/suite/calibration/build`
+      ? jsonResponse(200, { job_id: "kit" }) : unexpectedFetch(url));
+    await expect(request("/suite/calibration/build", { method: "GET" }, signal)).resolves.toEqual({ job_id: "kit" });
+    await expect(startJob("/suite/calibration/build", { out: "D:\\Kit" }, signal)).resolves.toEqual({ job_id: "kit" });
+    expect(bodyOf(fetch, "/suite/calibration/build", 1)).toEqual({ out: "D:\\Kit" });
+    expect(fetch.mock.calls[1][1]?.signal).toBe(signal);
+  });
   it("preserves an abort while consuming the response body", async () => {
     const ctrl = new AbortController(); const aborted = new DOMException("aborted", "AbortError");
     installFetch(url => {

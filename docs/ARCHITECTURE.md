@@ -22,6 +22,7 @@ path_guard.py       validate_user_path(): every server-local path, allowed roots
 suite_client.py     SuiteClient: runs `python -m videosuite <cmd> --json` as a subprocess,
                     validates the videosuite-<cmd>/1 document, kills the process tree.
 suite_routes.py     /suite/version|devices|settings|score|rank|compare: bodies, guards, jobs, heavy slots.
+calibration_routes.py /suite/calibration/*: strict bodies, raw output-link guards, sync calls and slotted jobs.
 suite_version.py    Numeric version handshake, 300 s definitive/10 s failure cache, startup check.
 magnet_suite.py     Nonfatal score_partial calls on retained probes: 8 files, 300 s stage budget.
 proc_guard.py       Windows kill-on-close Job Object, assigned per real suite child.
@@ -38,7 +39,8 @@ body-size middleware) and calls `suite_routes.install(app)`. `jobs.py`, `path_gu
 imports only those. The Dashboard never imports the Comparizer engine: the suite is a
 subprocess (see `docs/SUITE_INTEGRATION.md`).
 
-Frontend is one big `src/App.tsx` (~60 KB) — be ready to grep before editing.
+`src/App.tsx` owns the Analyze view and the three-tab shell. Suite and Calibration
+live in `src/suite/`; each mounts on its first visit and stays mounted while hidden.
 
 ## Data flow: single magnet
 
@@ -230,3 +232,30 @@ The Suite tab stays mounted after its first visit; inactive panels use `hidden` 
 | `testing/fixtures.ts`, `testing/fetchMock.ts` | Cloned real documents and strictly mocked HTTP for frontend tests. |
 
 `src/jobStatus.ts` defines the terminal job statuses shared with the legacy pollers. The new read-only `/suite/settings` route derives facts from the suite's devices document; its dedicated fill lock shares one 60-second cache fill with `/suite/devices` and never caches failures or reads the owner's settings file itself.
+
+## `src/suite/calibration/` frontend
+
+The third tab is **Calibration (TV)**. `src/App.tsx` provides three-way arrow/Home/End
+keyboard navigation and a labelled `SuiteBoundary`. Calibration checks version first;
+only an `ok` version advertising `calibration` loads settings and mounts the workspace.
+An installed 0.3/0.4 suite gets the update-to-0.5.0 message here while Suite stays usable.
+
+| Module | Responsibility |
+| --- | --- |
+| `CalibrationScreen.tsx` | Capability gate, settings recheck, remembered kit id, shared selection and one shared hook; supplies a newly built descriptor until its first session. |
+| `KitPanel.tsx` | Source/output validation, plan estimates and frozen predictions, prepare/cancel and retained build logs. |
+| `ConditionsBar.tsx` | Read-only audio/USB settings, single-line TV software (100 characters), explicit session confirmation and answer readiness. |
+| `ChecklistTable.tsx` | Built-in-first player groups, frozen predictions/evidence, saved status/progress and accessible test selection. |
+| `GuidedCard.tsx` | Selected test instructions/outcomes, Not sure/Skip, single-line note (500 characters), Back/Next and saved conditions. |
+| `ApplyPanel.tsx` | Preview/revision, individual veto confirmations, apply/undo reasons and read-only What changed playback report through `VerdictBadge`. |
+| `useCalibration.ts` | Store-backed answers, guarded mutations, stale-preview invalidation and independent plan/build/report polling through `useJob`. |
+| `types.ts` | Additive calibration documents and runtime guards, with prototype-safe keyed lookups. |
+| `api.ts` | Exact JSON requests through the shared API base, response guards and single-line note normalization. |
+| `messages.ts` | Capability check, evidence-bearing prediction text and plain notices. |
+| `calibration.css` | Theme-token layout: checklist/card columns at 900 px, one column below. |
+
+Session and answer state lives in VideoSuite's store, not browser storage; the browser
+remembers only the kit id (`calibration_kit`). Conditions changes invalidate previews;
+answers retain immutable measured conditions. Build/session output paths are checked for
+links/junctions before canonicalization can hide them. The write/backup/lock contract
+and the eight backend routes are in `docs/SUITE_INTEGRATION.md`.

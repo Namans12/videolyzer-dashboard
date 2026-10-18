@@ -7,6 +7,17 @@ end-to-end recipes below. The frontend has Vitest tests (see "Frontend tests").
 
 Run `npm test` for the frontend suite, or `npm run test:watch` during development. Vitest uses jsdom and Testing Library for `src/**/*.test.{ts,tsx}`, through the same Vite/React Compiler plugins as the production build. Exact dev-tool versions are pinned in `package.json`; the installed jsdom requires Node 22.22.2 or a compatible newer supported version.
 
+The Plan 4A documentation verification run has **422 tests in 30 files**. Calibration
+coverage under `src/suite/calibration/` includes document guards, exact requests,
+store-backed answers, stale preview invalidation, kit planning/build polling, the
+checklist and guided card, session confirmation and input limits, individual veto
+confirmation, apply/undo and playback reports. App tests cover three-tab keyboard
+navigation, lazy mounting with hidden-panel retention, stored-tab restoration,
+the calibration capability gate on older suites and independent error boundaries.
+Fetch-gated tests cover terminal polling and request guards; jsdom does not establish
+real-browser layout, focus traversal or live installed-suite behavior. Those require
+the separate real-browser QA pass.
+
 Tests import real suite fixtures from `tests/fixtures/suite/` only through `src/suite/testing/fixtures.ts`, which returns fresh clones. Never edit those JSON fixtures by hand. Fetch is always mocked through `src/suite/testing/fetchMock.ts`; an unexpected request fails the test even when application code catches it. Polling tests use fake timers, with timer advances wrapped in React `act`; scheduled handoffs settle through separate render/effect flushes. `src/security.test.ts` scans frontend sources for HTML injection, evaluated code and non-loopback URLs.
 
 Run `npm run lint` and `npm run build` after frontend changes. The real-browser verification also checks the guarded backend against the installed suite, generated clips and the owner's explicitly authorized read-only file; unit tests never access owner media or start backend processes.

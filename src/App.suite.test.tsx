@@ -17,7 +17,15 @@ vi.mock("./suite/SuiteScreen", async importOriginal => {
     return <original.SuiteScreen />;
   } };
 });
-afterEach(() => { suiteCrash.enabled = false; vi.restoreAllMocks(); });
+const calibrationCrash = vi.hoisted(() => ({ enabled: false }));
+vi.mock("./suite/calibration/CalibrationScreen", async importOriginal => {
+  const original = await importOriginal<typeof import("./suite/calibration/CalibrationScreen")>();
+  return { CalibrationScreen: function CalibrationScreen() {
+    if (calibrationCrash.enabled) throw new Error("private calibration error");
+    return <original.CalibrationScreen />;
+  } };
+});
+afterEach(() => { suiteCrash.enabled = false; calibrationCrash.enabled = false; vi.restoreAllMocks(); });
 
 const tick = async (ms = 0) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); for (let i = 0; i < 4; i++) await act(async () => { await vi.advanceTimersByTimeAsync(0); }); };
 function setup(extra: FetchHandler = unexpectedFetch) {
@@ -34,17 +42,72 @@ describe("Suite tab integration", () => {
     setup(); render(<App />);
     const analyze = screen.getByRole("tab", { name: "Analyze" });
     const suite = screen.getByRole("tab", { name: "Suite (all devices)" });
+    const calibration = screen.getByRole("tab", { name: "Calibration (TV)" });
+    const tabs = [analyze, suite, calibration];
+    expect(screen.getAllByRole("tab")).toEqual(tabs);
     expect(analyze).toHaveAttribute("tabindex", "0");
     expect(suite).toHaveAttribute("tabindex", "-1");
+    expect(calibration).toHaveAttribute("tabindex", "-1");
     analyze.focus();
-    for (const [key, target] of [["ArrowRight", suite], ["ArrowRight", analyze], ["ArrowLeft", suite], ["ArrowLeft", analyze], ["End", suite], ["Home", analyze]] as const) {
+    const steps = [["ArrowRight", suite], ["ArrowRight", calibration], ["ArrowRight", analyze], ["ArrowLeft", calibration], ["ArrowLeft", suite],
+      ["ArrowLeft", analyze], ["End", calibration], ["Home", analyze], ["End", calibration], ["ArrowLeft", suite], ["End", calibration]] as const;
+    for (const [key, target] of steps) {
       fireEvent.keyDown(document.activeElement!, { key });
       expect(target).toHaveFocus();
       expect(target).toHaveAttribute("aria-selected", "true");
-      expect(target).toHaveAttribute("tabindex", "0");
-      expect(target === suite ? analyze : suite).toHaveAttribute("tabindex", "-1");
+      for (const tab of tabs) expect(tab).toHaveAttribute("tabindex", tab === target ? "0" : "-1");
+      for (const tab of tabs) if (tab !== target) expect(tab).toHaveAttribute("aria-selected", "false");
     }
+    expect(localStorage.getItem("active_tab")).toBe("calibration");
     await tick();
+  });
+  it("mounts the Calibration screen on first open, keeps it mounted while hidden, and gates it on the calibration capability", async () => {
+    const fetch = setup(); render(<App />);
+    expect(document.getElementById("panel-calibration")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Calibration (TV)" })); await tick();
+    const panel = document.getElementById("panel-calibration")!;
+    expect(panel).toHaveAttribute("role", "tabpanel"); expect(panel).toHaveAttribute("aria-labelledby", "tab-calibration");
+    expect(within(panel).getByText("Please update VideoSuite to 0.5.0 to use calibration.")).toBeVisible();
+    expect(fetch.mock.calls.some(c => String(c[0]).includes("/suite/calibration/"))).toBe(false);
+    expect(document.getElementById("panel-suite")).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Suite (all devices)" })); await tick();
+    expect(panel).toHaveAttribute("hidden"); expect(document.getElementById("panel-calibration")).toBe(panel);
+    const suitePanel = document.getElementById("panel-suite")!;
+    expect(within(suitePanel).getByText("VideoSuite 0.4.0 is ready.")).toBeVisible();
+    expect(within(suitePanel).queryByText(/update VideoSuite to 0.5.0/)).toBeNull();
+    expect(within(suitePanel).getByText("Score files")).toBeInTheDocument();
+  });
+  it("opens the Calibration screen for a capable suite and restores it from the stored tab", async () => {
+    localStorage.setItem("active_tab", "calibration");
+    const status = { schema: "videosuite-calibrate-status/1", tool_version: "0.5.0", recovery_required: false, kit: null, session: null, answers: [],
+      summary: { done: 0, total: 0, matches: 0, differs: 0 } };
+    installFetch(url => {
+      if (url === API + "/suite/version") return jsonResponse(200, versionInfo({ tool_version: "0.5.0", capabilities: [...versionInfo().capabilities, "calibration"] }));
+      if (url === API + "/suite/devices") return jsonResponse(200, devicesDoc());
+      if (url === API + "/suite/settings") return jsonResponse(200, suiteSettings());
+      if (url === API + "/suite/calibration/status") return jsonResponse(200, status);
+      return unexpectedFetch(url);
+    });
+    render(<App />); await tick();
+    expect(screen.getByRole("tab", { name: "Calibration (TV)" })).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById("panel-suite")).toBeNull();
+    const panel = document.getElementById("panel-calibration")!;
+    expect(panel).not.toHaveAttribute("hidden");
+    expect(within(panel).getByRole("region", { name: "Prepare calibration kit" })).toBeVisible();
+    expect(within(panel).queryByText(/update VideoSuite to 0.5.0/)).toBeNull();
+  });
+  it("keeps Analyze and Suite usable when the Calibration screen throws", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    calibrationCrash.enabled = true; setup();
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Calibration (TV)" }));
+    expect(screen.getByText("The Calibration screen hit an unexpected error. Use the Analyze tab, or reload the page.")).toBeVisible();
+    expect(document.body.textContent).not.toContain("private calibration error");
+    fireEvent.click(screen.getByRole("tab", { name: "Suite (all devices)" })); await tick();
+    expect(screen.getByText("VideoSuite 0.4.0 is ready.")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "Analyze" }));
+    fireEvent.change(document.getElementById("video-path")!, { target: { value: "D:\\still-usable.mkv" } });
+    expect(document.getElementById("video-path")).toHaveValue("D:\\still-usable.mkv");
   });
   it("keeps Analyze usable when the Suite screen throws", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});

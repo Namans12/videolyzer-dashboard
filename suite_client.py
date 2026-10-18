@@ -92,6 +92,8 @@ _POLL_SECONDS = 0.25
 _JOIN_SECONDS = 10.0
 
 DEVICES_TIMEOUT_S = 30
+# Allow the CLI's 30-second calibration lock wait to return its own busy refusal.
+CALIBRATION_SYNC_TIMEOUT_S = 60
 SCORE_BASE_S, SCORE_PER_FILE_S, DEEP_DV_PER_FILE_S = 60, 45, 900
 COMPARE_TIMEOUT_S = 6 * 3600
 COMPARE_PER_PAIR_S = {"fast": 1800, "accurate": 9000}
@@ -257,6 +259,32 @@ def _check_paths(paths: Any) -> List[str]:
     return out
 
 
+def _calibration_paths(paths: Any) -> List[str]:
+    """Plan/build can discover an entirely invented kit without source files."""
+    if isinstance(paths, (list, tuple)) and not paths:
+        return []
+    return _check_paths(paths)
+
+
+def _check_ids(values: Any, what: str) -> List[str]:
+    if not isinstance(values, (list, tuple)):
+        raise SuiteArgumentError(f"{what} must be a list")
+    return [_check_name(value, what) for value in values]
+
+
+def _calibration_text(value: Any, what: str, *, empty: bool = False) -> str:
+    if not isinstance(value, str) or (not (empty and value == "") and _text_problem(value)):
+        raise SuiteArgumentError(f"{what} must be text without control characters")
+    return value
+
+
+def _check_kit(value: Any) -> str:
+    # Build ids include a 12-hex nonce, a hyphen and a full SHA256 (77 characters).
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", value):
+        raise SuiteArgumentError("kit is not a valid id")
+    return value
+
+
 def _check_name(value: Any, what: str) -> str:
     if not (isinstance(value, str) and _NAME_RE.fullmatch(value)):
         raise SuiteArgumentError(f"{what} is not a valid id")
@@ -308,7 +336,7 @@ def _check_mode(value: Any) -> str:
 
 # ── document validation ──────────────────────────────────────────────────────────
 
-_REQUIRED: Dict[str, Dict[str, type]] = {
+_REQUIRED: Dict[str, Dict[str, Any]] = {
     "version": {"schemas": dict, "capabilities": list, "facts_version": int},
     "devices": {"devices": list},
     "facts": {"records": list},
@@ -316,6 +344,17 @@ _REQUIRED: Dict[str, Dict[str, type]] = {
     "rank": {"quality": list, "same_picture_groups": list, "not_compared": list, "missing_pairs": list,
              "weights": dict, "devices": dict},
     "compare": {"mode": str, "estimate": dict, "shortlist": list, "dropped": list, "pairs": list, "failed": int},
+    "calibrate-plan": {"catalogue_version": int, "players": list, "tests": list},
+    "calibrate-build": {"kit_id": str, "out": str, "descriptor_path": str, "total_bytes": int,
+                        "descriptors": list, "unavailable": list},
+    "calibrate-session": {"kit_id": str, "session": dict},
+    "calibrate-record": {"answer": dict, "summary": dict},
+    "calibrate-status": {"recovery_required": bool, "kit": (dict, type(None)),
+                         "session": (dict, type(None)), "answers": list, "summary": dict},
+    "calibrate-apply": {"revision": str, "applied": bool, "recovery_required": bool,
+                        "changes": list, "conflicts": list, "skipped": list},
+    "calibrate-report": {"note": str, "kit_active": bool, "recovery_required": bool,
+                         "files": list, "best_player_changes": list},
 }
 
 
@@ -342,6 +381,118 @@ def _strings(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
+def _validate_calibration(command: str, doc: dict, require: Callable, fields: Callable) -> None:
+    """Frozen calibration fields; rule values and verification payloads remain opaque JSON."""
+    string = lambda v: isinstance(v, str)
+    nullable_string = lambda v: v is None or string(v)
+    boolean = lambda v: isinstance(v, bool)
+    array = lambda v: isinstance(v, list)
+    obj = lambda v: isinstance(v, dict)
+    count = lambda v: _integer(v) and v >= 0
+    kind = lambda v: v in ("invented", "excerpt", "manual")
+    test_class = lambda v: v in ("decisive", "informational")
+    anything = lambda v: True
+
+    def prediction(row, path):
+        fields(row, path, {"outcome": nullable_string, "text": string, "evidence": string})
+
+    def session(row, path):
+        fields(row, path, {"tv_software": string, "audio_output": nullable_string,
+                           "usb_filesystem": nullable_string, "confirmed_at": string})
+
+    def summary(row, path):
+        fields(row, path, {key: count for key in ("done", "total", "matches", "differs")})
+
+    def answer(row, path):
+        fields(row, path, {key: string for key in ("kit_id", "test", "player", "outcome", "note", "at")})
+        fields(row, path, {"conditions": obj, "older_tv_software": boolean,
+                           "match": lambda v: v in ("matches", "differs", "unsure", "none")})
+        fields(row["conditions"], path + ".conditions", {"audio_output": nullable_string,
+               "usb_filesystem": nullable_string, "tv_software": string})
+
+    def outcomes(rows, path, descriptor=False):
+        for i, row in enumerate(rows):
+            checks = {"id": string, "text": string}
+            if descriptor:
+                checks["value"] = anything
+            fields(row, f"{path}[{i}]", checks)
+
+    def descriptor(row, path):
+        fields(row, path, {key: string for key in ("test", "player", "title", "instruction", "question")})
+        fields(row, path, {"class": test_class, "rule": nullable_string, "outcomes": array,
+                           "conditions": _strings, "manual": boolean, "file": nullable_string,
+                           "source": obj, "prediction": obj})
+        outcomes(row["outcomes"], path + ".outcomes", True)
+        fields(row["source"], path + ".source", {"kind": kind, "file": nullable_string,
+               "verification": lambda v: v is None or obj(v)})
+        prediction(row["prediction"], path + ".prediction")
+
+    def descriptors(rows, path):
+        for i, row in enumerate(rows):
+            descriptor(row, f"{path}[{i}]")
+
+    if command == "calibrate-plan":
+        require(_integer(doc["catalogue_version"]), "catalogue_version")
+        require(_strings(doc["players"]), "players")
+        for i, row in enumerate(doc["tests"]):
+            path = f"tests[{i}]"
+            fields(row, path, {key: string for key in ("test", "title", "instruction", "question")})
+            fields(row, path, {"class": test_class, "players": _strings, "manual": boolean,
+                               "outcomes": array, "prediction": obj, "source": obj})
+            outcomes(row["outcomes"], path + ".outcomes")
+            for player in row["players"]:
+                require(player in row["prediction"], path + ".prediction." + player)
+            for player, pred in row["prediction"].items():
+                prediction(pred, path + ".prediction." + player)
+            fields(row["source"], path + ".source", {"kind": kind,
+                   "status": lambda v: v in ("ready", "needs_real_file", "unavailable"),
+                   "file": nullable_string, "est_bytes": lambda v: v is None or count(v), "reason": nullable_string})
+    elif command == "calibrate-build":
+        require(count(doc["total_bytes"]), "total_bytes")
+        descriptors(doc["descriptors"], "descriptors")
+        for i, row in enumerate(doc["unavailable"]):
+            fields(row, f"unavailable[{i}]", {"test": string, "reason": string})
+    elif command == "calibrate-session":
+        session(doc["session"], "session")
+    elif command == "calibrate-record":
+        answer(doc["answer"], "answer")
+        summary(doc["summary"], "summary")
+    elif command == "calibrate-status":
+        if doc["kit"] is not None:
+            fields(doc["kit"], "kit", {"id": string, "catalogue_version": _integer,
+                   "built_at": string, "out": string, "descriptors": array})
+            descriptors(doc["kit"]["descriptors"], "kit.descriptors")
+        if doc["session"] is not None:
+            session(doc["session"], "session")
+        for i, row in enumerate(doc["answers"]):
+            answer(row, f"answers[{i}]")
+        summary(doc["summary"], "summary")
+    elif command == "calibrate-apply":
+        for i, row in enumerate(doc["changes"]):
+            path = f"changes[{i}]"
+            fields(row, path, {key: string for key in ("id", "test", "player", "reason")})
+            fields(row, path, {"rule": nullable_string,
+                   "action": lambda v: v in ("confirm", "change", "veto", "skip", "undo", "left"),
+                   "previous": anything, "value": anything, "veto": boolean})
+        for i, row in enumerate(doc["conflicts"]):
+            fields(row, f"conflicts[{i}]", {"rule": string, "player": string, "tests": _strings})
+        for i, row in enumerate(doc["skipped"]):
+            fields(row, f"skipped[{i}]", {key: string for key in ("test", "player", "reason")})
+    elif command == "calibrate-report":
+        require(doc["note"] == "playback only, not a quality ranking", "note")
+        for i, row in enumerate(doc["files"]):
+            path = f"files[{i}]"
+            fields(row, path, {"path": string, "player": string, "before": obj, "after": obj, "changed": boolean})
+            for side in ("before", "after"):
+                fields(row[side], path + "." + side, {"verdict": lambda v: v in _VERDICTS, "score": _number,
+                       "evidence": string, "effective_audio": nullable_string, "effective_hdr": string})
+        for i, row in enumerate(doc["best_player_changes"]):
+            path = f"best_player_changes[{i}]"
+            fields(row, path, {"path": string, "device": string, "before": obj, "after": obj})
+            for side in ("before", "after"):
+                fields(row[side], path + "." + side, {"player": string, "verdict": lambda v: v in _VERDICTS})
+
+
 def _validate_deep(command: str, doc: dict) -> None:
     """Validate consumer-facing fields while accepting additive, unknown fields."""
     def require(valid: bool, path: str) -> None:
@@ -357,7 +508,9 @@ def _validate_deep(command: str, doc: dict) -> None:
     nullable_string = lambda value: value is None or isinstance(value, str)
     nullable_number = lambda value: value is None or _number(value)
     verdict = lambda value: value in _VERDICTS
-    if command == "version":
+    if command.startswith("calibrate-"):
+        _validate_calibration(command, doc, require, fields)
+    elif command == "version":
         require(_strings(doc["capabilities"]), "capabilities")
         if "engine_tag" in doc:
             require(nullable_string(doc["engine_tag"]), "engine_tag")
@@ -638,7 +791,96 @@ class SuiteClient:
         return self._with_list("compare", paths, extra, self._timeout_compare(len(paths), mode, top),
                                on_line=on_line, cancel=cancel)
 
+    def calibrate_plan(self, paths: Sequence[str], players: Sequence[str], *, deep_dv: bool = False,
+                       cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Plan a kit; returns None when cancelled, including during deep discovery."""
+        paths = _calibration_paths(paths)
+        extra = [f"--player={p}" for p in _check_ids(players, "players")]
+        if deep_dv:
+            extra.append("--deep-dv")
+        return self._with_list("calibrate-plan", paths, extra,
+                               self._timeout_score_rank(len(paths), deep_dv), cancel=cancel)
+
+    def calibrate_build(self, paths: Sequence[str], out_dir: str, players: Sequence[str], tests: Sequence[str], *,
+                        deep_dv: bool = False, on_line: Optional[Callable[[str], None]] = None,
+                        cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Build a kit; total_bytes in the returned document is authoritative."""
+        paths = _calibration_paths(paths)
+        out_dir = _check_dir(out_dir, "out_dir")
+        players, tests = _check_ids(players, "players"), _check_ids(tests, "tests")
+        extra = [f"--out={out_dir}", "--yes"] + [f"--player={p}" for p in players]
+        if tests:
+            extra.append("--tests=" + ",".join(tests))
+        if deep_dv:
+            extra.append("--deep-dv")
+        # Empty selection means every catalogue test (currently T01..T16).
+        # The base budget also accommodates the builder's 30-second lock wait.
+        timeout = 600 + 120 * (len(tests) if tests else 16) + (DEEP_DV_PER_FILE_S * len(paths) if deep_dv else 0)
+        return self._with_list("calibrate-build", paths, extra, timeout, on_line=on_line, cancel=cancel)
+
+    def calibrate_status(self, kit: Optional[str] = None) -> SuiteDocument:
+        return self._calibration_fast("status", [] if kit is None else [f"--kit={_check_kit(kit)}"])
+
+    def calibrate_session(self, out: str, tv_software: str, audio_output: Optional[str],
+                          usb_fs: Optional[str]) -> SuiteDocument:
+        out = _check_dir(out, "out")
+        tv_software = _calibration_text(tv_software, "tv_software")
+        if audio_output is not None and audio_output not in ("tv_speakers", "soundbar", "avr"):
+            raise SuiteArgumentError("audio_output must be tv_speakers, soundbar or avr")
+        usb_fs = _check_fs(usb_fs)
+        extra = [f"--kit-file={os.path.join(out, 'kit.json')}", f"--tv-software={tv_software}"]
+        if audio_output is not None:
+            extra.append(f"--audio-output={audio_output}")
+        if usb_fs is not None:
+            extra.append(f"--usb-fs={usb_fs}")
+        return self._calibration_fast("session", extra)
+
+    def calibrate_record(self, kit: str, test: str, player: str, outcome: str, note: str = "") -> SuiteDocument:
+        extra = [f"--kit={_check_kit(kit)}", f"--test={_check_name(test, 'test')}",
+                 f"--player={_check_name(player, 'player')}", f"--outcome={_check_name(outcome, 'outcome')}",
+                 f"--note={_calibration_text(note, 'note', empty=True)}"]
+        return self._calibration_fast("record", extra)
+
+    def calibrate_apply(self, kit: str, *, preview: bool, revision: Optional[str] = None,
+                        confirm_veto: Sequence[str] = ()) -> SuiteDocument:
+        kit = _check_kit(kit)
+        if not isinstance(preview, bool):
+            raise SuiteArgumentError("preview must be a boolean")
+        if not isinstance(confirm_veto, (list, tuple)):
+            raise SuiteArgumentError("confirm_veto must be a list")
+        ids = []
+        for cid in confirm_veto:
+            # Change ids contain colon-separated test/player/rule, including @container.
+            if not isinstance(cid, str) or not re.fullmatch(r"[A-Za-z0-9_.:@-]{1,512}", cid):
+                raise SuiteArgumentError("confirm_veto contains an invalid change id")
+            ids.append(cid)
+        extra = [f"--kit={kit}"]
+        if preview:
+            if revision is not None or ids:
+                raise SuiteArgumentError("preview takes no revision or veto confirmations")
+            extra.append("--preview")
+        else:
+            revision = _check_name(revision, "revision")
+            extra.append(f"--revision={revision}")
+            if ids:
+                extra.append("--confirm-veto=" + ",".join(ids))
+        return self._calibration_fast("apply", extra)
+
+    def calibrate_undo(self, kit: str) -> SuiteDocument:
+        return self._calibration_fast("apply", [f"--undo={_check_kit(kit)}"])
+
+    def calibrate_report(self, kit: str, paths: Sequence[str], *, on_line: Optional[Callable[[str], None]] = None,
+                         cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        kit, paths = _check_kit(kit), _check_paths(paths)
+        return self._with_list("calibrate-report", paths, [f"--kit={kit}"],
+                               self._timeout_score_rank(len(paths), False), on_line=on_line, cancel=cancel)
+
     # ── internals ────────────────────────────────────────────────────────────────
+
+    def _calibration_fast(self, sub: str, extra: List[str]) -> SuiteDocument:
+        command = "calibrate-" + sub
+        return self._finish(command, self._run(command, ["calibrate", sub, "--json"] + extra,
+                                               CALIBRATION_SYNC_TIMEOUT_S))
 
     @staticmethod
     def _device_args(device: Optional[str], player: Optional[str], fs: Optional[str], lang: str) -> List[str]:
@@ -659,7 +901,10 @@ class SuiteClient:
             list_file = os.path.join(tmp, "paths.txt")
             with open(list_file, "w", encoding="utf-8", newline="\n") as fh:
                 fh.write("\n".join(paths) + "\n")
-            argv = [command, "--list", list_file, "--json"] + extra
+            words = ["calibrate", command[len("calibrate-"):]] if command.startswith("calibrate-") else [command]
+            # An empty list is valid for plan/build only; passing its file would
+            # trigger the CLI's shared "give at least one file" validation.
+            argv = words + (["--list", list_file] if paths else []) + ["--json"] + extra
             outcome = self._run(command, argv, timeout, on_line=on_line, cancel=cancel,
                                 cleanup_budget=cleanup_budget)
             if outcome.reason == "cancel":

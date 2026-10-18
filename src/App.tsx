@@ -16,6 +16,7 @@ import Switch from "./Switch";
 import { API } from "./suite/config";
 import { SuiteScreen } from "./suite/SuiteScreen";
 import { SuiteBoundary } from "./suite/SuiteBoundary";
+import { CalibrationScreen } from "./suite/calibration/CalibrationScreen";
 import { MagnetSuiteBlock } from "./suite/MagnetSuiteBlock";
 
 // ── Magnet link icon (reusable) ──────────────────────────────────────────────
@@ -289,10 +290,14 @@ function cleanFileName(name: string): string {
   return name.replace(/^[0-9a-f]{32}_/i, "");
 }
 
-type AppTab = "analyze" | "suite";
+type AppTab = "analyze" | "suite" | "calibration";
+const TABS: readonly AppTab[] = ["analyze", "suite", "calibration"];
 const TAB_KEY = "active_tab";
 function readStoredTab(): AppTab {
-  try { return localStorage.getItem(TAB_KEY) === "suite" ? "suite" : "analyze"; }
+  try {
+    const stored = localStorage.getItem(TAB_KEY);
+    return stored === "suite" || stored === "calibration" ? stored : "analyze";
+  }
   catch { return "analyze"; }
 }
 
@@ -795,9 +800,11 @@ export default function App() {
   }, [data]);
   const [activeTab, setActiveTab] = useState<AppTab>(readStoredTab);
   const [suiteOpened, setSuiteOpened] = useState<boolean>(() => readStoredTab() === "suite");
+  const [calibrationOpened, setCalibrationOpened] = useState<boolean>(() => readStoredTab() === "calibration");
   const selectTab = (tab: AppTab) => {
     setActiveTab(tab);
     if (tab === "suite") setSuiteOpened(true);
+    if (tab === "calibration") setCalibrationOpened(true);
     try { localStorage.setItem(TAB_KEY, tab); } catch { /* not persisted */ }
   };
   const abortRef = useRef(false);
@@ -1347,9 +1354,11 @@ export default function App() {
 
       <div className="app-tabs" role="tablist" aria-label="Screens" onKeyDown={event => {
         let next: AppTab;
-        if (event.key === "Home") next = "analyze";
-        else if (event.key === "End") next = "suite";
-        else if (event.key === "ArrowLeft" || event.key === "ArrowRight") next = activeTab === "analyze" ? "suite" : "analyze";
+        const index = TABS.indexOf(activeTab);
+        if (event.key === "Home") next = TABS[0];
+        else if (event.key === "End") next = TABS[TABS.length - 1];
+        else if (event.key === "ArrowRight") next = TABS[(index + 1) % TABS.length];
+        else if (event.key === "ArrowLeft") next = TABS[(index + TABS.length - 1) % TABS.length];
         else return;
         event.preventDefault();
         selectTab(next);
@@ -1361,6 +1370,9 @@ export default function App() {
         <button type="button" role="tab" id="tab-suite" aria-controls="panel-suite" aria-selected={activeTab === "suite"}
                 tabIndex={activeTab === "suite" ? 0 : -1}
                 className={`app-tab ${activeTab === "suite" ? "app-tab-active" : ""}`} onClick={() => selectTab("suite")}>Suite (all devices)</button>
+        <button type="button" role="tab" id="tab-calibration" aria-controls="panel-calibration" aria-selected={activeTab === "calibration"}
+                tabIndex={activeTab === "calibration" ? 0 : -1}
+                className={`app-tab ${activeTab === "calibration" ? "app-tab-active" : ""}`} onClick={() => selectTab("calibration")}>Calibration (TV)</button>
       </div>
 
       <div id="panel-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden={activeTab !== "analyze"}>
@@ -2361,6 +2373,7 @@ export default function App() {
       </section>
       </div>
       {suiteOpened && <div id="panel-suite" role="tabpanel" aria-labelledby="tab-suite" hidden={activeTab !== "suite"}><SuiteBoundary><SuiteScreen /></SuiteBoundary></div>}
+      {calibrationOpened && <div id="panel-calibration" role="tabpanel" aria-labelledby="tab-calibration" hidden={activeTab !== "calibration"}><SuiteBoundary label="The Calibration screen"><CalibrationScreen /></SuiteBoundary></div>}
     </div>
   );
 }

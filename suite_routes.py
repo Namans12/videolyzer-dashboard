@@ -22,7 +22,9 @@ stderr) and, when the CLI got as far as exiting, ``exit_code``; or ``cancelled``
 tree killed; a job cancelled while queued never starts the CLI). A compare whose CLI reported ``failed > 0`` keeps ``results`` and ends ``error`` /
 ``failed_pairs``.
 
-Concurrency: one heavy job (compare or deep-DV score) at a time (409), at most two score/rank jobs (409). The
+Calibration routes are installed from ``calibration_routes.py`` and share these slots and path guards.
+Concurrency: one heavy job (compare, deep-DV score, calibration build or deep-DV calibration plan) at a time
+(409), at most two score/rank jobs (409; calibration reports use one). The
 route takes the slot atomically and hands it to the runner (``_slot_held=True``); a runner called directly takes
 the slot itself and ends its job ``busy`` if there is none. The slot is released in ``finally``.
 """
@@ -52,7 +54,11 @@ DEVICES_TOO_OLD_DETAIL = ("VideoSuite does not support 'devices'; reinstall the 
 UNAVAILABLE_DETAIL = "VideoSuite is not installed (set VIDEOSUITE_PYTHON and VIDEOSUITE_ROOT)"
 COMPARE_BUSY_DETAIL = "a comparison is already running"
 SCORE_RANK_BUSY_DETAIL = "too many suite jobs are running"
-HEAVY_TEXT = {"compare": "a comparison is already running", "deep_dv": "a deep Dolby Vision scan is already running"}
+HEAVY_TEXT = {"compare": "a comparison is already running", "deep_dv": "a deep Dolby Vision scan is already running",
+              "calibration": "a calibration kit job is already running"}
+HEAVY_SUFFIX = "only one heavy job (a picture comparison or a deep Dolby Vision scan) runs at a time"
+HEAVY_SUFFIX_CALIBRATION = ("only one heavy job (a picture comparison, a deep Dolby Vision scan or a calibration "
+                            "kit job) runs at a time")
 
 MAX_PATHS = 50
 MAX_SCORE_RANK_JOBS = 2
@@ -71,7 +77,8 @@ _devices_cache: "Optional[tuple[float, dict]]" = None
 
 
 class _Slots:
-    """One heavy job, ``MAX_SCORE_RANK_JOBS`` score/rank jobs; check-and-take is atomic."""
+    """One heavy job (a comparison, a deep-DV score or a calibration kit job), ``MAX_SCORE_RANK_JOBS`` score/rank
+    jobs; check-and-take is atomic. The ``calibration`` slot is heavy and takes no score/rank capacity."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -83,15 +90,19 @@ class _Slots:
 
     def try_acquire(self, slot: str) -> Optional[str]:
         with self._lock:
-            if slot != "compare" and self._score_rank >= MAX_SCORE_RANK_JOBS:
+            if slot not in ("compare", "calibration") and self._score_rank >= MAX_SCORE_RANK_JOBS:
                 return SCORE_RANK_BUSY_DETAIL
-            if slot in ("compare", "score_rank+deep_dv") and self._heavy is not None:
+            if slot in ("compare", "calibration", "score_rank+deep_dv") and self._heavy is not None:
                 if slot == "compare" and self._heavy == "compare":
                     return COMPARE_BUSY_DETAIL
-                return (f"{HEAVY_TEXT[self._heavy]}; only one heavy job "
-                        "(a picture comparison or a deep Dolby Vision scan) runs at a time")
+                if slot == "calibration" and self._heavy == "calibration":
+                    return HEAVY_TEXT["calibration"]
+                suffix = HEAVY_SUFFIX_CALIBRATION if "calibration" in (slot, self._heavy) else HEAVY_SUFFIX
+                return f"{HEAVY_TEXT[self._heavy]}; {suffix}"
             if slot == "compare":
                 self._heavy = "compare"
+            elif slot == "calibration":
+                self._heavy = "calibration"
             else:
                 self._score_rank += 1
                 if slot == "score_rank+deep_dv":
@@ -100,7 +111,10 @@ class _Slots:
 
     def release(self, slot: str) -> None:
         with self._lock:
-            if slot == "compare":
+            if slot == "calibration":
+                if self._heavy == "calibration":                # never frees another heavy job's slot
+                    self._heavy = None
+            elif slot == "compare":
                 self._heavy = None
             else:
                 self._score_rank = max(0, self._score_rank - 1)
@@ -194,8 +208,10 @@ def _guarded_path(raw: str, **kwargs: Any) -> str:
         raise HTTPException(status_code=exc.status, detail=exc.message) from None
 
 
-def _guarded_paths(paths: List[str]) -> List[str]:
-    return [_guarded_path(p, must_be="file") for p in paths]
+def _guarded_paths(paths: List[str], *, must_exist: bool = True) -> List[str]:
+    """Guard video file paths. ``must_exist=False`` accepts a source that is offline (its file is missing) as long
+    as its folder exists; the raw ADS/UNC/control-character and extension checks still apply."""
+    return [_guarded_path(p, must_be="file", must_exist=must_exist) for p in paths]
 
 
 def _guarded_folder(raw: str, what: str, *, must_exist: bool) -> str:
@@ -237,6 +253,22 @@ def _end_cancelled(job_id: str) -> None:
     jobs.request_cancel(job_id)                         # (no-op when the flag is already set)
     _emit(job_id, "Cancelled.")
     jobs.finish(job_id)
+
+
+def _progress_forwarder(job_id: str) -> Callable[[str], None]:
+    """An ``on_line`` callback: the last stderr line is ``current``; the first ``MAX_PROGRESS_EVENTS`` become events."""
+    lines = 0
+
+    def on_line(line: str) -> None:
+        nonlocal lines
+        jobs.update(job_id, current=line[:200])
+        lines += 1
+        if lines <= MAX_PROGRESS_EVENTS:
+            _emit(job_id, line[:_MAX_LINE])
+        elif lines == MAX_PROGRESS_EVENTS + 1:
+            _emit(job_id, "(further progress lines are not recorded)")
+
+    return on_line
 
 
 def _run_slotted(job_id: str, slot: str, slot_held: bool, body: Callable[[], None]) -> None:
@@ -300,18 +332,7 @@ def run_compare_job(job_id: str, client: Any, paths: List[str], out_dir: str, mo
                     top: Optional[int] = None, *, _slot_held: bool = False) -> None:
     def body() -> None:
         _emit(job_id, f"Comparing {len(paths)} file(s) ({mode})")
-        lines = 0
-
-        def on_line(line: str) -> None:
-            nonlocal lines
-            jobs.update(job_id, current=line[:200])
-            lines += 1
-            if lines <= MAX_PROGRESS_EVENTS:
-                _emit(job_id, line[:_MAX_LINE])
-            elif lines == MAX_PROGRESS_EVENTS + 1:
-                _emit(job_id, "(further progress lines are not recorded)")
-
-        doc = client.compare(paths, out_dir, mode, 4 if top is None else top, on_line=on_line,
+        doc = client.compare(paths, out_dir, mode, 4 if top is None else top, on_line=_progress_forwarder(job_id),
                              cancel=lambda: jobs.is_cancelled(job_id))
         if doc is None:                                 # the client was cancelled and killed the process tree
             _end_cancelled(job_id)
@@ -334,8 +355,11 @@ def _suite_unavailable(_request: Any, _exc: Exception) -> JSONResponse:
 
 
 def install(app: FastAPI) -> None:
-    """Mount the router and the 503 mapping for a client that cannot be built."""
+    """Mount the router (and the calibration router) and the 503 mapping for a client that cannot be built."""
+    import calibration_routes                           # imported here: it builds on this module's slots and guards
+
     app.include_router(router)
+    app.include_router(calibration_routes.router)
     app.add_exception_handler(SuiteUnavailable, _suite_unavailable)
 
 
@@ -385,6 +409,15 @@ def _devices_document(client: Any) -> Dict[str, Any]:
         with _cache_lock:
             _devices_cache = (_clock(), doc)
         return doc
+
+
+def invalidate_devices_cache() -> None:
+    """Forget the cached devices/settings document, UNDER the fill lock (so a fill that started before the caller's
+    write cannot store its stale document afterwards). Unlike ``reset_state`` it never touches the job slots."""
+    global _devices_cache
+    with _fill_lock:
+        with _cache_lock:
+            _devices_cache = None
 
 
 @router.get("/devices")
