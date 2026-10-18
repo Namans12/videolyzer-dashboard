@@ -188,6 +188,8 @@ Other 502 details: `VideoSuite returned an unusable response.` (`contract`) or `
 
 Read-only owner settings, derived from the `devices --json` document (the Dashboard never reads the settings file itself). Same version gate, 60 s cache and error mapping as `GET /suite/devices` (503 not installed, 504 timeout, 502 too old or other failure; never stderr text). Simultaneous `/suite/devices` and `/suite/settings` requests share one CLI read.
 
+Both routes accept the optional boolean query flag `?refresh=true`. It invalidates the shared document under the cache fill lock and immediately re-reads VideoSuite's settings/device document. Failed reads are never cached. Normal loads retain the 60 s cache; both calibration recheck buttons request a refresh.
+
 ```json
 {"tool_version": "0.4.0", "supported": true, "path": "C:\\fixtures\\suite\\no_settings.json", "loaded": false,
  "errors": [], "applied_count": 0,

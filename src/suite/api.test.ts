@@ -15,6 +15,17 @@ const paths = [
 const networkSentence = "The Dashboard backend is not answering (is it running on http://127.0.0.1:8000?).";
 
 describe("suite HTTP client", () => {
+  it("refreshes devices and settings only when explicitly requested", async () => {
+    const signal = new AbortController().signal;
+    const fetch = installFetch(url => url.includes("/suite/devices") ? jsonResponse(200, devicesDoc()) : jsonResponse(200, suiteSettings()));
+    await getDevices(signal); await getSettings(signal);
+    await getDevices(signal, true); await getSettings(signal, true);
+    expect(fetch.mock.calls.map(call => call[0])).toEqual([
+      API + "/suite/devices", API + "/suite/settings",
+      API + "/suite/devices?refresh=true", API + "/suite/settings?refresh=true",
+    ]);
+    for (const [, init] of fetch.mock.calls) expect(init?.signal).toBe(signal);
+  });
   it("exports the unchanged request and job-start helpers for calibration", async () => {
     const signal = new AbortController().signal;
     const fetch = installFetch(url => url === `${API}/suite/calibration/build`

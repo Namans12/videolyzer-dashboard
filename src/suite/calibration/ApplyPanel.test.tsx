@@ -182,7 +182,33 @@ it("runs What changed with unchanged paths, renders old/new evidence, audio, HDR
   expect(screen.getByText(/Audio: <img src=x>/)).toBeVisible(); expect(container.querySelector("img")).toBeNull();
   expect(screen.getAllByText(/HDR: HDR10/)).toHaveLength(2);
   expect(screen.getByText(/Kodi/)).toBeVisible();
+  expect(screen.getByText(`${doc.files[0].path} (Sony Bravia 8 II)`)).toBeVisible();
   expect(bodyOf(fetch, base + "/report")).toEqual({ kit: "kit", paths: [doc.files[0].path] });
+});
+
+it.each([
+  ["galaxy_tab_s9_ultra", "vlc", "Galaxy Tab S9 Ultra", "VLC for Android"],
+  ["galaxy_tab_s9_ultra", "samsung_video", "Galaxy Tab S9 Ultra", "Samsung Video (built-in)"],
+  ["vivobook_pro_16x", "vlc", "ASUS Vivobook Pro 16X", "VLC 3.0.x (Direct3D11 output)"],
+  ["vivobook_pro_16x", "windows_player", "ASUS Vivobook Pro 16X", "Windows Media Player / Movies & TV (with Store codec extensions)"],
+  ["constructor", "__proto__", "constructor", "__proto__"],
+])("names report rows and recommendations for %s/%s", async (device, player, deviceLabel, playerLabel) => {
+  const doc = reportDoc();
+  doc.files[0].player = `${device}/${player}`;
+  doc.best_player_changes[0] = { ...doc.best_player_changes[0], device,
+    before: { ...doc.best_player_changes[0].before, player }, after: { ...doc.best_player_changes[0].after, player } };
+  installFetch(url => url === API + base + "/status" ? jsonResponse(200, statusDoc())
+    : url === API + base + "/report" ? jsonResponse(200, { job_id: "names" })
+    : url === API + "/job/names" ? jsonResponse(200, jobOf({ status: "done", results: doc })) : unexpectedFetch(url));
+  render(<Harness />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "What changed" })).toBeEnabled());
+  fireEvent.change(screen.getByLabelText(/Files for playback report/), { target: { value: doc.files[0].path } });
+  fireEvent.click(screen.getByRole("button", { name: "What changed" }));
+  expect(await screen.findByRole("heading", { level: 5 })).toHaveTextContent(`${doc.files[0].path} — ${playerLabel}`);
+  expect(screen.getByRole("table", { name: `Playback before and after: ${doc.files[0].path} (${playerLabel})` })).toBeVisible();
+  expect(screen.getByText(`${doc.files[0].path} (${deviceLabel})`)).toBeVisible();
+  expect(screen.getByText(/Best player before:/)).toHaveTextContent(`(${playerLabel})`);
+  expect(screen.getByText(/Best player after:/)).toHaveTextContent(`(${playerLabel})`);
 });
 
 it.each(["derived", "missing", "constructor", "__proto__"])("labels both best-player recommendations with %s evidence lookup", async kind => {

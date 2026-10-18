@@ -59,7 +59,7 @@ function loadCalibrationStatus(refresh: boolean, signal: AbortSignal, on: LoadHa
     const state: VersionState = { kind: "loaded", info };
     live(() => on.version(state));
     if (signal.aborted || !calibrationAvailable(state)) return;
-    await getSettings(signal).then(s => live(() => on.settings(s, null)), (err: unknown) => live(() => on.settings(null, errorSentence(err))));
+    await getSettings(signal, refresh).then(s => live(() => on.settings(s, null)), (err: unknown) => live(() => on.settings(null, errorSentence(err))));
   }).catch((err: unknown) => live(() => on.version({ kind: "failed", status: err instanceof SuiteApiError ? err.status : 0, detail: err instanceof SuiteApiError ? err.detail : "" })))
     .finally(() => live(on.done));
 }

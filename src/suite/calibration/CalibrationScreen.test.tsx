@@ -24,7 +24,7 @@ function setup(extra: FetchHandler = unexpectedFetch, version = capable(), view 
   return installFetch((url, init) => {
     if (url === API + "/suite/version" || url === API + "/suite/version?refresh=true") return jsonResponse(200, version);
     if (url === API + "/suite/devices") return jsonResponse(200, devicesDoc());
-    if (url === API + "/suite/settings") return jsonResponse(200, view);
+    if (url === API + "/suite/settings" || url === API + "/suite/settings?refresh=true") return jsonResponse(200, view);
     return extra(url, init);
   });
 }
@@ -182,7 +182,8 @@ it("re-checks owner settings on request", async () => {
   render(<CalibrationScreen />);
   await screen.findByRole("button", { name: "HDR banner T01" });
   fireEvent.click(screen.getByRole("button", { name: "Check settings again" }));
-  await waitFor(() => expect(callsTo(fetch, "/suite/settings")).toHaveLength(2));
+  await waitFor(() => expect(callsTo(fetch, "/suite/settings?refresh=true")).toHaveLength(1));
+  expect(callsTo(fetch, "/suite/settings")).toHaveLength(1);
   expect(callsTo(fetch, "/suite/version?refresh=true")).toHaveLength(1);
 });
 
@@ -194,7 +195,7 @@ function recheckSetup() {
   const state = { audio: "avr" as "avr" | "soundbar", fail: false, hold: null as null | (() => void), deferNext: false };
   const fetch = installFetch(url => {
     if (url === API + "/suite/version" || url === API + "/suite/version?refresh=true") return jsonResponse(200, capable());
-    if (url === API + "/suite/settings") {
+    if (url === API + "/suite/settings" || url === API + "/suite/settings?refresh=true") {
       const view = settings(); view.devices.sony_bravia_8_ii.audio_output = state.audio;
       const response = () => state.fail ? jsonResponse(500, { detail: "settings unreadable" }) : jsonResponse(200, view);
       if (!state.deferNext) return response();
@@ -229,6 +230,8 @@ it.each([
   state.audio = audio; state.deferNext = true;
   fireEvent.click(button(control));
   await waitFor(() => expect(state.hold).not.toBeNull());
+  expect(callsTo(fetch, "/suite/settings")).toHaveLength(1);
+  expect(callsTo(fetch, "/suite/settings?refresh=true")).toHaveLength(1);
   expectAllBlocked();
   fireEvent.click(button("HDR banner T01")); fireEvent.click(button("Apply"));
   expect(screen.getByText(/Checking owner settings/)).toBeVisible();

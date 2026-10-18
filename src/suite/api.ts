@@ -73,11 +73,11 @@ export async function startJob(path: string, body: unknown, signal?: AbortSignal
 export function getVersion(refresh = false, signal?: AbortSignal): Promise<VersionInfo> {
   return request<VersionInfo>(refresh ? "/suite/version?refresh=true" : "/suite/version", { method: "GET" }, signal);
 }
-export function getDevices(signal?: AbortSignal): Promise<DevicesDocument> {
-  return request<DevicesDocument>("/suite/devices", { method: "GET" }, signal);
+export function getDevices(signal?: AbortSignal, refresh = false): Promise<DevicesDocument> {
+  return request<DevicesDocument>(refresh ? "/suite/devices?refresh=true" : "/suite/devices", { method: "GET" }, signal);
 }
-export function getSettings(signal?: AbortSignal): Promise<SuiteSettings> {
-  return request<SuiteSettings>("/suite/settings", { method: "GET" }, signal);
+export function getSettings(signal?: AbortSignal, refresh = false): Promise<SuiteSettings> {
+  return request<SuiteSettings>(refresh ? "/suite/settings?refresh=true" : "/suite/settings", { method: "GET" }, signal);
 }
 export function postScore(body: ScoreRequest, signal?: AbortSignal): Promise<JobStarted> {
   return startJob("/suite/score", body, signal);

@@ -3,7 +3,7 @@ import { EvidenceLegend } from "../EvidenceLegend";
 import { JobMessage } from "../JobMessage";
 import { VerdictBadge } from "../VerdictBadge";
 import { checkPaths } from "../paths";
-import { KIT_NOT_ACTIVE_TEXT, playerName, RECOVERY_REQUIRED_TEXT, ruleSummary } from "./messages";
+import { deviceName, KIT_NOT_ACTIVE_TEXT, playerName, RECOVERY_REQUIRED_TEXT, ruleSummary } from "./messages";
 import type { ApplyDocument, ReportSide } from "./types";
 import type { useCalibration } from "./useCalibration";
 
@@ -104,20 +104,20 @@ function ApplyForm({ calibration, disabledReason }: { calibration: Calibration; 
     {reportDocument && !reportDocument.kit_active && <p>This kit is no longer active. {KIT_NOT_ACTIVE_TEXT}</p>}
     {reportDocument && reportDocument.kit_active && !reportDocument.recovery_required && <>
       {reportDocument.files.map((file, index) => <article className="suite-record" key={index}>
-        <h5>{file.path} — {playerName(file.player.split("/").at(-1)!)}</h5>
+        <h5>{file.path} — {playerName(file.player.split("/").at(-1)!, file.player.split("/")[0])}</h5>
         <p>{file.changed ? "Playback changed" : "Playback unchanged"}</p>
-        <table className="suite-table" aria-label={`Playback before and after: ${file.path} (${playerName(file.player.split("/").at(-1)!)})`}>
+        <table className="suite-table" aria-label={`Playback before and after: ${file.path} (${playerName(file.player.split("/").at(-1)!, file.player.split("/")[0])})`}>
           <thead><tr><th scope="col">Before</th><th scope="col">After</th></tr></thead>
           <tbody><tr><td><PlaybackSide side={file.before} /></td><td><PlaybackSide side={file.after} /></td></tr></tbody>
         </table>
       </article>)}
       {reportDocument.files.length === 0 && <p>No playback files in this report.</p>}
       {reportDocument.best_player_changes.map((file, index) => <div className="suite-best-player" key={index}>
-        <p>{file.path} ({file.device})</p>
-        <p>Best player before: {file.before.label} ({playerName(file.before.player)}) — {file.before.reason}{" "}
+        <p>{file.path} ({deviceName(file.device)})</p>
+        <p>Best player before: {file.before.label} ({playerName(file.before.player, file.device)}) — {file.before.reason}{" "}
           <VerdictBadge verdict={file.before.verdict}
             evidence={reportDocument.files.find(row => row.path === file.path && row.player === `${file.device}/${file.before.player}`)?.before.evidence} /></p>
-        <p>Best player after: {file.after.label} ({playerName(file.after.player)}) — {file.after.reason}{" "}
+        <p>Best player after: {file.after.label} ({playerName(file.after.player, file.device)}) — {file.after.reason}{" "}
           <VerdictBadge verdict={file.after.verdict}
             evidence={reportDocument.files.find(row => row.path === file.path && row.player === `${file.device}/${file.after.player}`)?.after.evidence} /></p>
       </div>)}

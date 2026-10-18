@@ -217,6 +217,26 @@ def test_devices_cache_is_cleared_by_clean_state_helper(client, fake):
     assert len(fake.calls) == 2
 
 
+@pytest.mark.parametrize("route", ["/suite/devices", "/suite/settings"])
+def test_explicit_refresh_rereads_shared_cache_and_failure_is_not_cached(client, fake, route):
+    original = client.get(route)
+    assert original.status_code == 200
+    assert client.get(route).json() == original.json()
+    assert len(fake.calls) == 1
+    changed = fixture_doc("devices.json")
+    changed["tool_version"] = "0.5.1"
+    fake.results["devices"] = changed
+    assert client.get(route + "?refresh=true").json()["tool_version"] == "0.5.1"
+    assert len(fake.calls) == 2
+    assert client.get("/suite/devices").json() == changed
+    assert len(fake.calls) == 2
+    fake.results["devices"] = SuiteError("timeout", "secret")
+    assert client.get(route + "?refresh=true").status_code == 504
+    fake.results["devices"] = fixture_doc("devices.json")
+    assert client.get(route).json() == original.json()
+    assert len(fake.calls) == 4
+
+
 def test_devices_cache_is_empty_at_the_start_of_every_test(client, fake):
     # clean_state must have cleared what the previous tests cached
     client.get("/suite/devices")

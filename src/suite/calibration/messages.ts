@@ -13,8 +13,17 @@ export const SESSION_REQUIRED_TEXT = "Confirm the TV software, audio output and 
 export const ANSWER_NOT_IN_KIT_TEXT = "This answer is not in the kit descriptor.";
 export const SAVING_TEXT = "Saving answer…";
 
-const PLAYER_NAMES: Record<string, string> = { builtin_usb: "Built-in USB player", kodi: "Kodi", just_player: "Just Player" };
-export function playerName(id: string): string { return Object.hasOwn(PLAYER_NAMES, id) ? PLAYER_NAMES[id] : id; }
+// Bundled device profile labels; keep the established short TV player names.
+const PLAYER_NAMES: Record<string, string> = { builtin_usb: "Built-in USB player", kodi: "Kodi", just_player: "Just Player",
+  vlc: "VLC for Android", samsung_video: "Samsung Video (built-in)",
+  windows_player: "Windows Media Player / Movies & TV (with Store codec extensions)" };
+export function playerName(id: string, device?: string): string {
+  if (id === "vlc" && device === "vivobook_pro_16x") return "VLC 3.0.x (Direct3D11 output)";
+  return Object.hasOwn(PLAYER_NAMES, id) ? PLAYER_NAMES[id] : id;
+}
+const DEVICE_NAMES: Record<string, string> = { sony_bravia_8_ii: "Sony Bravia 8 II",
+  galaxy_tab_s9_ultra: "Galaxy Tab S9 Ultra", vivobook_pro_16x: "ASUS Vivobook Pro 16X" };
+export function deviceName(id: string): string { return Object.hasOwn(DEVICE_NAMES, id) ? DEVICE_NAMES[id] : id; }
 
 /** Decimal units, matching the MB/GB labels; one decimal makes both sizes easy to compare. */
 export function kitSize(bytes: number): string {

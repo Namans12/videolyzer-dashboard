@@ -381,16 +381,19 @@ def _fresh_devices() -> Optional[dict]:
     return None
 
 
-def _devices_document(client: Any) -> Dict[str, Any]:
+def _devices_document(client: Any, *, refresh: bool = False) -> Dict[str, Any]:
     """Version gate first; serialized cache fills; errors are never cached."""
     global _devices_cache
     version = suite_version.ensure(client)
     if version["status"] == "too_old":
         raise HTTPException(status_code=502, detail=version["message"])
-    doc = _fresh_devices()
+    doc = None if refresh else _fresh_devices()
     if doc is not None:
         return doc
     with _fill_lock:
+        if refresh:
+            with _cache_lock:
+                _devices_cache = None
         doc = _fresh_devices()
         if doc is not None:
             return doc
@@ -421,8 +424,8 @@ def invalidate_devices_cache() -> None:
 
 
 @router.get("/devices")
-def suite_devices(client: Any = Depends(get_suite_client)) -> Any:
-    return _devices_document(client)
+def suite_devices(client: Any = Depends(get_suite_client), refresh: bool = False) -> Any:
+    return _devices_document(client, refresh=refresh)
 
 
 def _opt_str(value: Any) -> Optional[str]:
@@ -464,9 +467,9 @@ def settings_view(doc: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/settings")
-def suite_settings(client: Any = Depends(get_suite_client)) -> Any:
+def suite_settings(client: Any = Depends(get_suite_client), refresh: bool = False) -> Any:
     """Owner settings reported by VideoSuite; never reads the settings file itself."""
-    return settings_view(_devices_document(client))
+    return settings_view(_devices_document(client, refresh=refresh))
 
 
 def _take_slot(slot: str) -> None:
