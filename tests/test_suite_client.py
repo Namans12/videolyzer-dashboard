@@ -1596,6 +1596,44 @@ def test_calibration_contract_additions_and_oversize(sub):
     assert error.value.kind == "contract"
 
 
+@pytest.mark.parametrize('check_id,capability,status', [
+    ('models','full','missing'),('models','full','error'),('cuda','full','error'),
+    ('ffmpeg','full','missing'),('ffprobe','files','missing'),('dovi_tool','dolby_vision','missing')])
+@pytest.mark.parametrize('mode',['fast','accurate'])
+def test_packaged_failed_full_preflight_refuses_before_worker_and_keeps_metadata(tmp_path,monkeypatch,check_id,capability,status,mode):
+    import app_preflight
+    root=tmp_path/'release/suite'
+    root.mkdir(parents=True)
+    (root.parent/'release.json').write_text('{}')
+    checks=[dict(id=check_id,capability=capability,status=status,message='Required engine support is unavailable')]
+    probes=[]
+    def preflight(*args):
+        probes.append(args)
+        return checks
+    monkeypatch.setattr(app_preflight,'preflight',preflight)
+    pop=FakePopen(ok('score.json'))
+    c=make_client(pop,root=str(root),environ={'VIDEOSUITE_OFFLINE':'1','VIDEOLYZER_DATA_ROOT':str(tmp_path/'data')})
+    with pytest.raises(SuiteError,match='Full comparison is unavailable') as error:
+        c.compare(['C:\\a.mkv','C:\\b.mkv'],str(tmp_path/'out'),mode=mode)
+    assert error.value.kind=='unavailable'
+    assert pop.calls==[] and pop.list_dir is None and not (tmp_path/'out').exists()
+    assert len(probes)==1
+    assert c.score(['C:\\a.mkv'])['schema']=='videosuite-score/1'
+    assert len(pop.calls)==1 and len(probes)==1
+
+
+def test_packaged_optional_magnet_failure_does_not_block_pixels(tmp_path,monkeypatch):
+    import app_preflight
+    root=tmp_path/'release/suite'
+    root.mkdir(parents=True)
+    (root.parent/'release.json').write_text('{}')
+    monkeypatch.setattr(app_preflight,'preflight',lambda *a:[dict(id='magnet_runtime',capability='magnets',status='missing',message=app_preflight.MAGNET_UNAVAILABLE)])
+    pop=FakePopen(ok('compare.json'))
+    c=make_client(pop,root=str(root),environ={'VIDEOSUITE_OFFLINE':'1','VIDEOLYZER_DATA_ROOT':str(tmp_path/'data')})
+    assert c.compare(['C:\\a.mkv','C:\\b.mkv'],str(tmp_path/'out')) is not None
+    assert len(pop.calls)==1
+
+
 @pytest.mark.parametrize("sub", ["plan", "build", "report"])
 @pytest.mark.parametrize("reason", ["timeout", "cancel", "oversize"])
 def test_calibration_process_cleanup(sub, reason, monkeypatch):

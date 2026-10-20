@@ -56,8 +56,15 @@ def clean_state():
     import suite_client
     import suite_routes
     import suite_version
+    import proc_guard
 
     def reset() -> None:
+        with proc_guard.workers.lock:
+            proc_guard.workers._workers.clear()
+            proc_guard.workers.stopping = False
+        main.lifecycle.mode = "keep"
+        main.lifecycle.error = None
+        main.jobs.accept_work(True)
         with suite_client._LIVE_LOCK:
             suite_client._LIVE.clear()
         main._jobs.clear()

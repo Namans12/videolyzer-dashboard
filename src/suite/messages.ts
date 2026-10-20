@@ -27,7 +27,7 @@ function withDetail(prefix: string, detail: string): string {
 }
 
 export function apiErrorSentence(status: number, detail: string): string {
-  if (status === 0) return "The Dashboard backend is not answering (is it running on http://127.0.0.1:8000?).";
+  if (status === 0) return "The Dashboard backend is not answering. Check that the app is running.";
   if (status === 400 || status === 415) return withDetail("The request was refused", detail);
   if (status === 403) return withDetail("Access refused", detail);
   if (status === 404) return withDetail("Not found", detail);

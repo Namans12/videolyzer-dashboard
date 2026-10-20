@@ -46,6 +46,15 @@ class JobStore:
         self._jobs: dict[str, dict] = {}
         self._cancel: set[str] = set()
         self._finished: list[tuple[str, float]] = []   # (job_id, finished_at), oldest first
+        self._accepting = True
+
+    def accept_work(self, accepting: bool) -> None:
+        with self._lock:
+            self._accepting = accepting
+
+    def can_start_work(self) -> bool:
+        with self._lock:
+            return self._accepting
 
     # ── creation / reading ───────────────────────────────────────────────────
 
@@ -66,6 +75,8 @@ class JobStore:
         job["kind"] = kind
         job_id = uuid.uuid4().hex
         with self._lock:
+            if not self._accepting:
+                raise RuntimeError("App is shutting down; new jobs are refused.")
             self._purge()
             self._jobs[job_id] = job
         return job_id

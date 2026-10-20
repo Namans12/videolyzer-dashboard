@@ -788,8 +788,36 @@ class SuiteClient:
         extra = self._device_args(device, player, fs, lang) + [f"--out={out_dir}", f"--mode={mode}", f"--top={top}"]
         if deep_dv:
             extra.append("--deep-dv")
+        self._require_full_support()
         return self._with_list("compare", paths, extra, self._timeout_compare(len(paths), mode, top),
                                on_line=on_line, cancel=cancel)
+
+    def _require_full_support(self) -> None:
+        """Refresh packaged engine checks before any pixel process/list/output exists."""
+        if self.env_overrides.get("VIDEOSUITE_OFFLINE", self._environ.get("VIDEOSUITE_OFFLINE")) != "1":
+            return
+        import json
+        from app_preflight import preflight
+        try:
+            if not self.root:
+                raise ValueError("The packaged suite location is missing")
+            release = Path(self.root).parent
+            path = release / "release.json"
+            if path.stat().st_size > MAX_STDOUT_BYTES:
+                raise ValueError("The offline release manifest is invalid")
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+            data = self._environ.get("VIDEOLYZER_DATA_ROOT") or str(
+                Path(self._environ.get("LOCALAPPDATA", str(Path.home()))) / "VideoComparator/app")
+            checks = preflight(release, manifest, Path(data))
+            if not checks:
+                raise ValueError("Required engine support could not be verified")
+            failed = [c["message"] for c in checks if c["status"] != "ok" and
+                      (c["capability"] in {"full", "suite", "files"} or c["id"] == "dovi_tool")]
+            if failed:
+                raise ValueError("; ".join(failed))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            raise SuiteError("unavailable", "Full comparison is unavailable: " + str(exc) +
+                ". Repair the matching offline installation. Metadata analysis is still available.") from None
 
     def calibrate_plan(self, paths: Sequence[str], players: Sequence[str], *, deep_dv: bool = False,
                        cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
@@ -978,9 +1006,16 @@ class SuiteClient:
              cleanup_budget: Optional[float] = None) -> _Outcome:
         argv = self.argv_prefix + args
         try:
-            proc = self._popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                               env=self._process_env(), cwd=self.root, shell=False,
-                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            with proc_guard.workers.lock:
+                if proc_guard.workers.stopping:
+                    raise SuiteError("unavailable", "App is shutting down.")
+                proc = self._popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   env=self._process_env(), cwd=self.root, shell=False,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                worker_id = "suite:" + str(proc.pid) + ":" + str(id(proc))
+                owned = proc_guard.OwnedProcess(proc, force=lambda: self._kill(proc, deadline=self._clock() + 4))
+                proc_guard.workers.register(worker_id, owned.cancel, owned.wait,
+                    force=owned.force, job_id=proc_guard.owner_id())
         except OSError:
             raise SuiteError("unavailable", "The VideoSuite process could not be started.") from None
         try:
@@ -993,8 +1028,10 @@ class SuiteClient:
             return self._run_process(proc, timeout, on_line=on_line, cancel=cancel,
                                      cleanup_budget=cleanup_budget)
         finally:
-            with _LIVE_LOCK:
-                _LIVE.discard(proc)
+            if owned.wait(0):
+                proc_guard.workers.unregister(worker_id)
+                with _LIVE_LOCK:
+                    _LIVE.discard(proc)
 
     def _run_process(self, proc: Any, timeout: float, *, on_line: Optional[Callable[[str], None]],
                      cancel: Optional[Callable[[], bool]], cleanup_budget: Optional[float]) -> _Outcome:

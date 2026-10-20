@@ -4,9 +4,11 @@ import os
 import re
 import shutil
 import subprocess
+import proc_guard
 import logging
 import tempfile
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import partial
 from typing import Any, Callable, Optional
@@ -81,15 +83,7 @@ def resolve_tool(*names: str) -> str | None:
 
 def run_command(args: list[str], timeout: int) -> subprocess.CompletedProcess[str] | None:
     try:
-        return subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=timeout,
-        )
+        return proc_guard.run_tool(args, timeout=timeout)
     except (subprocess.SubprocessError, OSError):
         return None
 
@@ -256,8 +250,8 @@ def run_ffprobe(file_path: str) -> dict[str, Any] | None:
 
 def probe_metadata(file_path: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     with ThreadPoolExecutor(max_workers=2) as executor:
-        mi_future = executor.submit(run_mediainfo, file_path)
-        ff_future = executor.submit(run_ffprobe, file_path)
+        mi_future = executor.submit(proc_guard.inherit_owner(run_mediainfo), file_path)
+        ff_future = executor.submit(proc_guard.inherit_owner(run_ffprobe), file_path)
         return mi_future.result(), ff_future.result()
 
 
@@ -1647,8 +1641,23 @@ def analyze_file(filepath: str, skip_dovi_scan: bool = False,
         except Exception as e:
             error_holder[0] = e
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+    done = threading.Event()
+    stop = threading.Event()
+    worker_id = "analysis:" + uuid.uuid4().hex
+    original_run = _run
+    def tracked_run():
+        try:
+            if not stop.is_set():
+                original_run()
+        finally:
+            done.set()
+            proc_guard.workers.unregister(worker_id)
+    t = threading.Thread(target=proc_guard.inherit_owner(tracked_run), daemon=True)
+    with proc_guard.workers.lock:
+        if proc_guard.workers.stopping:
+            return None
+        proc_guard.workers.register(worker_id, stop.set, done.wait, job_id=proc_guard.owner_id())
+        t.start()
     t.join(timeout=360)  # 6 min max per file
     if t.is_alive():
         logger.warning("analyze_file timed out for %s", filepath)

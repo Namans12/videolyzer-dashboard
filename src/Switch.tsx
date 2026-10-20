@@ -8,15 +8,16 @@ type Props = {
 
 export default function Switch({ isLightMode, setIsLightMode }: Props) {
   return (
-    <label className="theme-switch">
-      {/* unchecked = day/sun/clouds = light mode  |  checked = night/moon/stars = dark mode */}
-      <input
-        type="checkbox"
+    <div className="theme-switch">
+      {/* Native button: Tab focus and Space/Enter activation; pressed = dark mode. */}
+      <button
+        type="button"
         className="theme-switch__checkbox"
-        checked={!isLightMode}
-        onChange={() => setIsLightMode((v) => !v)}
+        aria-label="Dark mode"
+        aria-pressed={!isLightMode}
+        onClick={() => setIsLightMode((v) => !v)}
       />
-      <div className="theme-switch__container">
+      <div className="theme-switch__container" aria-hidden="true">
         <div className="theme-switch__clouds"></div>
         <div className="theme-switch__stars-container">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 55" fill="none">
@@ -38,6 +39,6 @@ export default function Switch({ isLightMode, setIsLightMode }: Props) {
           </div>
         </div>
       </div>
-    </label>
+    </div>
   );
 }

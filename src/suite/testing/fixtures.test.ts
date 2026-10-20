@@ -158,7 +158,7 @@ describe("fetch test helpers", () => {
     } catch {
       // Simulate application code swallowing the rejected fetch.
     }
-    expect(takeUnexpectedFetches()).toEqual(["unexpected fetch http://127.0.0.1:8000/nope"]);
+    expect(takeUnexpectedFetches()).toEqual(["unexpected fetch /nope"]);
 
     installFetch(() => {
       throw new TypeError("Failed to fetch");

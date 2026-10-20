@@ -1,5 +1,62 @@
 # Testing & Verification
 
+## Offline Part 1 verification
+
+Current packaged identity is VideoSuite 0.6.0 / `offline_payload`, Python 3.11.9,
+RTX 3050 Ti / CUDA 12.6. Validate the actual `release.json`, Dashboard component
+manifest, both lock hashes, source snapshot identities and every file hash before
+installed smoke; do not satisfy checks from a sibling checkout or developer PATH.
+Use existing dependencies only: no installs/downloads/servers are authorized by
+a routine task. The source setup examples below are separate manual development.
+
+Every invocation needs a fresh owned scratch child and explicit overrides:
+`VIDEOSUITE_SETTINGS`, `VIDEOSUITE_CALIBRATION`, `VC_CACHE_DIR`,
+`VIDEOLYZER_DATA_ROOT`, `TORCH_HOME`, `HF_HOME`, `CLIP_CACHE_DIR`;
+set `PIP_NO_INDEX=1`, `PIP_DISABLE_PIP_VERSION_CHECK=1`, `HF_HUB_OFFLINE=1`,
+`TRANSFORMERS_OFFLINE=1`, `PYTHONDONTWRITEBYTECODE=1`, and
+`VIDEOLYZER_SUITE_STARTUP_CHECK=0` for unit tests. Never use real owner settings,
+calibration, reports, model caches or movies, including E: movie folders.
+Comparizer commands always use
+`C:\Users\naman\AppData\Local\Programs\Python\Python310\python.exe`;
+Dashboard commands use `D:\Videolyzer\videolyzer-dashboard\.venv\Scripts\python.exe`.
+
+L6 focused tests are `tests/test_app_payload.py tests/test_app_preflight.py
+tests/test_app_host.py tests/test_suite_client.py`; run the full Dashboard backend
+gate, `npm test`, `npm run lint`, `npm run build` too. Current frontend gate is
+496 tests in 32 files; the earlier calibration baseline was 422 tests in 30 files.
+Probe regressions prove Stop admits no child and running probes are cancellable.
+Full admission regressions inject missing/corrupt models, required CUDA and tool
+failures, assert no pixel worker/list/output creation, and keep metadata available.
+Export with the fresh source snapshot and explicit build/revision/destination,
+then Comparizer compiles with that exact artifact and finite acquisitions.json.
+No runtime npm or online repair; production requires an owner-committed source pair.
+
+L7 is compile/synthetic only. V-L3 separately authorizes a clean install, upgrade,
+rollback and installed browser/CUDA/model tests in the owned
+a fresh explicitly selected owned QA root. First verify
+E: is fixed local with at least 35 GiB, then enforce actual expansion + 24 GiB QA
++ 3 GiB margin; remeasure before each phase. C: keeps 3 GiB; D: base budgets are
+unchanged and measured copies/backups can raise them. Do not delete retained
+rollback evidence to fit. Only this owned E: root may be touched, then removed
+after the later QA tasks; NTFS app/IPC scratch stays separate. Public torrents
+and owner media are not QA fixtures: use generated tiny files and the authorized
+private local torrent fixture. No live tests/server until the task authorizes them.
+Check all three Quit labels, tab-close/relaunch continuity, foreign-process
+preservation and rollback before declaring installed success. A failed Job Object
+assignment leaves documented best-effort crash cleanup; unit fakes do not prove
+native health. Real-TV validation is owner-only, after dated backups of protected
+owner suite/app data and the existing production install. README.md gives launch,
+rollback and bootstrap/backend log paths.
+
+Compile-channel regression coverage checks actual Inno output: release retains
+the production AppId and normal per-user temp extraction, without a QA root;
+QA has a different AppId, QA ONLY identity and separate shortcuts. Manifest,
+compiler seal and provision channel must agree. QA's Python bootstrap never
+executes an installer; pass a verified QA-owned copy via /QAPythonDir. Registry
+preservation still needs the separate installed QA run; synthetic compile passes
+do not claim that run. Rollback uses a fresh VIDEOLYZER_DATA_ROOT and the real
+verifier, including failure preservation of pointers, runtime and shortcut bytes.
+
 The backend has an automated pytest suite (`tests/`) plus the manual
 end-to-end recipes below. The frontend has Vitest tests (see "Frontend tests").
 
@@ -20,11 +77,15 @@ the separate real-browser QA pass.
 
 Tests import real suite fixtures from `tests/fixtures/suite/` only through `src/suite/testing/fixtures.ts`, which returns fresh clones. Never edit those JSON fixtures by hand. Fetch is always mocked through `src/suite/testing/fetchMock.ts`; an unexpected request fails the test even when application code catches it. Polling tests use fake timers, with timer advances wrapped in React `act`; scheduled handoffs settle through separate render/effect flushes. `src/security.test.ts` scans frontend sources for HTML injection, evaluated code and non-loopback URLs.
 
-Run `npm run lint` and `npm run build` after frontend changes. The real-browser verification also checks the guarded backend against the installed suite, generated clips and the owner's explicitly authorized read-only file; unit tests never access owner media or start backend processes.
+Run `npm run lint` and `npm run build` after frontend changes. Separately authorized
+real-browser verification checks the guarded backend against the isolated installed
+suite and generated clips; it never uses owner media. Unit tests start no servers;
+process-ownership tests may start and cancel only their own disposable children.
 
 ## Automated backend tests
 
-One-time setup (from the repo root, Windows PowerShell):
+Legacy source-only one-time setup (not authorized by routine task execution;
+skip when the existing dependencies are present, never run in a packaged runtime):
 
 ```powershell
 python -m venv .venv
@@ -40,7 +101,7 @@ Run:
 Notes:
 
 - `pytest.ini` sets `testpaths = tests`, `pythonpath = .`, `addopts = -ra`.
-- Tests use fakes only (`analyze_file`, `run_magnet_job_threaded`); no real
+- Analysis/torrent tests use fakes (`analyze_file`, `run_magnet_job_threaded`); no real
   torrent, ffmpeg, MediaInfo or dovi_tool is started and libtorrent is not
   needed. Files are created under pytest's `tmp_path`; the real `uploads/`
   folder is never touched (`tests/conftest.py` redirects `main.UPLOAD_DIR`).
@@ -135,7 +196,10 @@ bad = dict(good, dv_profile="None", rpu="No", hdr="HDR10",
 print(verify_release(bad, intel))   # → flags: fake_dv (error), fake_atmos (warn)
 ```
 
-## End-to-end: single magnet
+## End-to-end: single magnet (separately authorized private fixture only)
+
+Historical source API examples below do not authorize server startup or a public
+magnet. Substitute only the private local fixture approved for installed QA.
 
 ```bash
 # Start server
@@ -164,8 +228,8 @@ curl -N http://127.0.0.1:8000/job/abc123.../events
 done  ~90-180s total
 ```
 
-If you don't see "Metadata received" within 90s, the torrent has no live
-peers — try a different magnet.
+If metadata does not arrive, inspect the owned fixture server/seed logs; never
+substitute a public torrent or the owner's files to make QA pass.
 
 ## End-to-end: multi-magnet compare
 
@@ -184,24 +248,18 @@ curl -s http://127.0.0.1:8000/job/<id> | python -m json.tool | less
 
 ## Test fixtures
 
-The two Avatar magnets in `CLAUDE.md` are good benchmarks:
-
-| Magnet | Group | Source     | DV | HDR10+ | Atmos | Container |
-|--------|-------|------------|----|--------|-------|-----------|
-| BYNDR  | BYNDR | iT WEB-DL  | Y  | N      | Y     | MKV       |
-| BTM    | BTM   | AMZN WEB-DL | Y | Y      | Y     | MP4       |
-
-Expected comparison winner: **BTM** — same DV profile, similar bitrate,
-plus HDR10+ + MP4 container. Trust score should be 100/100 for both
-(claims match stream metadata).
+Use generated tiny synthetic clips and the approved private local torrent fixture.
+Historical film/public magnets are not test fixtures. Pin expected parser facts
+from generated content; metadata compatibility never establishes measured pixel
+quality. Tests must not read owner media or fetch replacement model assets.
 
 ## What to check after a backend change
 
 1. `.\.venv\Scripts\python.exe -m pytest -q` — all tests pass.
 2. Hit `GET /health/` — server boots.
 3. Run the module's `__main__` smoke test if you touched a parser/scorer.
-4. Run a single-magnet job end-to-end (use a small public-domain torrent
-   if you don't want to wait on a REMUX).
+4. Only in a separately authorized live QA task, run the private local fixture
+   end-to-end; routine gates use fakes/synthetic inputs without a server.
 
 ## What to check after a frontend change
 

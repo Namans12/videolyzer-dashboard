@@ -54,10 +54,11 @@ def test_app_has_its_twelve_own_routes():
         else:
             paths.add(getattr(r, "path", None))
     paths -= FRAMEWORK_ROUTES
-    assert paths - SUITE_ROUTES - CALIBRATION_ROUTES == EXPECTED_ROUTES
+    app_controls = {"/app/quit", "/app/open-log"}
+    assert paths - SUITE_ROUTES - CALIBRATION_ROUTES - app_controls == EXPECTED_ROUTES
     assert SUITE_ROUTES <= paths
     assert CALIBRATION_ROUTES <= paths
-    assert paths == EXPECTED_ROUTES | SUITE_ROUTES | CALIBRATION_ROUTES      # exactly the new routes, nothing else
+    assert paths == EXPECTED_ROUTES | SUITE_ROUTES | CALIBRATION_ROUTES | app_controls
     assert len(EXPECTED_ROUTES) == 12 and len(CALIBRATION_ROUTES) == 8
 
 
@@ -74,3 +75,14 @@ def test_magnet_module_imports_without_libtorrent():
     import magnet
 
     assert hasattr(magnet, "MagnetUnavailable")
+
+
+def test_uploads_use_the_explicit_app_data_root():
+    import os
+    from pathlib import Path
+    import main
+
+    assert Path(main.DATA_ROOT) == Path(os.environ["VIDEOLYZER_DATA_ROOT"])
+    # conftest substitutes a test upload folder; import itself must not create the
+    # configured app data directory (lifespan alone owns directory creation).
+    assert not Path(main.DATA_ROOT).exists()

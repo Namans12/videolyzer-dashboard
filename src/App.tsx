@@ -18,6 +18,7 @@ import { SuiteScreen } from "./suite/SuiteScreen";
 import { SuiteBoundary } from "./suite/SuiteBoundary";
 import { CalibrationScreen } from "./suite/calibration/CalibrationScreen";
 import { MagnetSuiteBlock } from "./suite/MagnetSuiteBlock";
+import { AppConnection } from "./app/AppControls";
 
 // ── Magnet link icon (reusable) ──────────────────────────────────────────────
 // Renders the same SVG used in the magnet input field, wrapped in an <a>
@@ -1352,6 +1353,8 @@ export default function App() {
         <Switch isLightMode={isLightMode} setIsLightMode={setIsLightMode} />
       </nav>
 
+      <AppConnection />
+
       <div className="app-tabs" role="tablist" aria-label="Screens" onKeyDown={event => {
         let next: AppTab;
         const index = TABS.indexOf(activeTab);
@@ -2304,12 +2307,7 @@ export default function App() {
                   ⛓ Open Magnet
                 </a>
               ) : (
-                <a
-                  href={encodeURI(`file:///${item.path.replace(/\\/g, "/")}`)}
-                  className="open-link"
-                >
-                  Open File
-                </a>
+                <span className="open-link">{item.path}</span>
               )}
               <div className="meta-line">Verdict: {getVerdict(item, isBest)}</div>
             </article>

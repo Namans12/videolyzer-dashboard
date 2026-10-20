@@ -20,9 +20,11 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from typing import Any, Callable
 
 from analysis import analyze_file
+import proc_guard
 
 logger = logging.getLogger("video-analyzer.magnet")
 
@@ -237,6 +239,9 @@ def _load_libtorrent():
     try:
         import libtorrent as lt  # type: ignore
     except ImportError as exc:
+        if os.environ.get('VIDEOSUITE_OFFLINE') == '1':
+            from app_preflight import MAGNET_UNAVAILABLE
+            raise MagnetUnavailable(MAGNET_UNAVAILABLE) from exc
         raise MagnetUnavailable(
             "libtorrent is not installed. Install it with "
             "`pip install libtorrent` (you may also need the system "
@@ -395,6 +400,7 @@ def fetch_magnet_metadata(
     cancel_check: Callable[[], bool] | None = None,
     listen_port: int = 6881,
     enable_hdr10plus: bool = False,
+    _control=None,
 ) -> dict[str, Any]:
     """Download torrent metadata + a small header slice of each video file,
     then run ffprobe for real codec/HDR/audio results.
@@ -426,6 +432,8 @@ def fetch_magnet_metadata(
         settings = session_settings(listen_port)
         settings["alert_mask"] = lt.alert.category_t.all_categories
         session = lt.session(settings)
+        if _control is not None:
+            _control.set_session(session)
 
         for host, port in _DHT_ROUTERS:
             session.add_dht_router(host, port)
@@ -521,9 +529,9 @@ def fetch_magnet_metadata(
                     # set is idempotent and won't lose existing content).
                     if not os.path.exists(target):
                         open(target, "ab").close()
-                    result = subprocess.run(
+                    result = proc_guard.run_tool(
                         ["fsutil", "sparse", "setflag", target],
-                        check=False, capture_output=True, timeout=5,
+                        timeout=5, text=False,
                     )
                     if result.returncode != 0:
                         logger.warning(
@@ -761,6 +769,28 @@ def fetch_magnet_metadata(
         except Exception as exc:
             logger.warning("Failed to remove magnet workdir %s: %s", workdir, exc)
         session = None
+        if _control is not None:
+            _control.set_session(None)
+
+
+class _SessionControl:
+    def __init__(self):
+        self.stop = threading.Event()
+        self.lock = threading.Lock()
+        self.session = None
+
+    def set_session(self, session):
+        with self.lock:
+            self.session = session
+        if session is not None and self.stop.is_set():
+            session.pause()
+
+    def cancel(self):
+        self.stop.set()
+        with self.lock:
+            session = self.session
+        if session is not None:
+            session.pause()
 
 
 def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
@@ -779,23 +809,42 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
     """
     result_holder: list[Any]                 = [None]
     error_holder:  list[BaseException | None] = [None]
+    control = _SessionControl()
+    done = threading.Event()
+    worker_id = "magnet:" + uuid.uuid4().hex
+    def cancelled():
+        return control.stop.is_set() or cancel_check()
 
     def _run() -> None:
         try:
             result_holder[0] = fetch_magnet_metadata(
                 magnet_uri, skip_dovi_scan=skip_dovi_scan,
-                emit=emit, cancel_check=cancel_check,
+                emit=emit, cancel_check=cancelled,
                 listen_port=listen_port,
                 enable_hdr10plus=enable_hdr10plus,
+                _control=control,
             )
         except BaseException as e:  # noqa: BLE001
             error_holder[0] = e
+        finally:
+            done.set()
+            proc_guard.workers.unregister(worker_id)
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
+    t = threading.Thread(target=proc_guard.inherit_owner(_run), daemon=True)
+    with proc_guard.workers.lock:
+        if proc_guard.workers.stopping:
+            raise RuntimeError("Cancelled")
+        proc_guard.workers.register(worker_id, control.cancel, done.wait,
+                                   force=control.cancel, job_id=proc_guard.owner_id())
+        t.start()
     t.join(timeout=METADATA_TIMEOUT_S + PIECE_TIMEOUT_S + PROBE_MAX_S + 30
            + (SUITE_STAGE_MAX_S if _partial_scorer is not None else 0))
     if t.is_alive():
+        # Stop network activity immediately, then give the worker its cleanup
+        # budget. Retain its identity if native teardown cannot be completed.
+        control.stop.set()
+        proc_guard.workers.invoke(control.cancel, job_id=proc_guard.owner_id())
+        t.join(timeout=10)
         raise TimeoutError(
             "Magnet job exceeded the hard timeout — a probe likely wedged. "
             "The torrent may also have no live seeders."

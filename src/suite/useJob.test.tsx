@@ -26,6 +26,31 @@ function sequence(...answers: Response[]) {
 const running = () => jsonResponse(200, jobOf());
 
 describe("useJob", () => {
+  it.each(["done", "error", "cancelled"])("does not abort a completed %s response, including later navigation", async status => {
+    const fetch = sequence(jsonResponse(200, jobOf({ status })));
+    const { result, unmount } = renderHook(() => useJob("j1"));
+    await tick(0);
+    expect(result.current.status).toBe(status);
+    expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(false);
+    await tick(10000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    unmount();
+    expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(false);
+  });
+
+  it("handles native AbortError rejections from navigation without retries or console errors", async () => {
+    const errors = vi.spyOn(console, "error");
+    const fetch = installFetch((_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+    }));
+    const { unmount } = renderHook(() => useJob("j1"));
+    await tick(0);
+    unmount();
+    await tick(10000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(errors).not.toHaveBeenCalled();
+  });
+
   it.each([{}, [], { status: "unexpected" }, { status: null }].map(body => [body]))("stops on malformed job %j", async body => {
     const fetch = sequence(jsonResponse(200, body));
     const { result } = renderHook(() => useJob("j1"));

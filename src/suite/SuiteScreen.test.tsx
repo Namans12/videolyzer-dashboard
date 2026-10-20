@@ -106,7 +106,7 @@ describe("Suite screen", () => {
       if (url === API + "/suite/version?refresh=true") return jsonResponse(200, versionInfo({ status: "unavailable" }));
       return unexpectedFetch(url);
     });
-    render(<SuiteScreen />); await tick(); expect(screen.getByText("The Dashboard backend is not answering (is it running on http://127.0.0.1:8000?).")).toBeVisible();
+    render(<SuiteScreen />); await tick(); expect(screen.getByText("The Dashboard backend is not answering. Check that the app is running.")).toBeVisible();
     fireEvent.click(screen.getByText("Check again")); await tick(); expect(callsTo(fetch, "/suite/version?refresh=true")).toHaveLength(1);
   });
   it("scores exact quoted/non-ASCII paths and stops on done", async () => {

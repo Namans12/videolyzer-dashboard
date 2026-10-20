@@ -9,6 +9,8 @@ import { devicesDoc, jobOf, legacyVideo, scoreDoc, scorePartialDoc, suiteSetting
 import { PARTIAL_TEXT, unverifiedNotice } from "./suite/verdict";
 import appSource from "./App.tsx?raw";
 
+vi.mock("./app/AppControls", () => ({ AppConnection: () => <div aria-label="App connection" /> }));
+
 const suiteCrash = vi.hoisted(() => ({ enabled: false }));
 vi.mock("./suite/SuiteScreen", async importOriginal => {
   const original = await importOriginal<typeof import("./suite/SuiteScreen")>();
@@ -40,6 +42,7 @@ beforeEach(() => { vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT",
 describe("Suite tab integration", () => {
   it("selects and focuses tabs with arrows, Home and End using a roving tab stop", async () => {
     setup(); render(<App />);
+    expect(screen.getByLabelText("App connection")).toBeVisible();
     const analyze = screen.getByRole("tab", { name: "Analyze" });
     const suite = screen.getByRole("tab", { name: "Suite (all devices)" });
     const calibration = screen.getByRole("tab", { name: "Calibration (TV)" });
@@ -144,7 +147,11 @@ describe("Suite tab integration", () => {
     expect(container.querySelectorAll("details.legacy-panel")).toHaveLength(2);
     for (const el of container.querySelectorAll("details.legacy-panel")) expect(el).not.toHaveAttribute("open");
   });
-  it("uses the shared loopback API constant", () => { expect(API).toBe("http://127.0.0.1:8000"); expect(appSource).not.toContain("const API ="); });
+  it("uses the shared relative API constant", () => { expect(API).toBe(""); expect(appSource).not.toContain("const API ="); });
+  it("renders local media paths as text", () => {
+    expect(appSource).not.toContain("file:///");
+    expect(appSource).toContain('{item.path}');
+  });
   it("tolerates throwing storage for tabs, theme and completed analysis", async () => {
     const fetch = setup(url => {
       if (url.startsWith(API + "/analyze-path/?")) return jsonResponse(200, { job_id: "a1" });

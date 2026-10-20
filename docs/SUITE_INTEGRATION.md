@@ -9,6 +9,44 @@ real fixtures in `tests/fixtures/suite/` (output of the CLI, tool_version `0.4.0
 generated 10-second clips; paths shortened). JSON examples are abbreviated key layouts;
 the fixtures are authoritative for full current documents. Additive keys retain schema `/1`.
 
+## Packaged offline contract (Part 1)
+
+Production ships VideoSuite 0.6.0 with `offline_payload`, Python 3.11.9, the approved
+RTX 3050 Ti / CUDA 12.6 profile and both pinned private package closures. Historical
+fixture/minimum versions below describe backward compatibility, not the shipped
+version. No later 0.7.0 unified API is implied. Stable `setup\launch_app.pyw`
+validates `app/current.json`, its `release.json`, code/assets/locks/source hashes
+and relative private runtime paths; it supplies explicit VIDEOSUITE_PYTHON/ROOT
+and release tool directories. The legacy env.path discovery below is a source/
+migration fallback, never permission to import another checkout into production.
+
+In offline mode the client refuses pixels before creating a worker whenever any
+required Full-engine check fails (model missing/corrupt, CUDA unavailable or required
+tool absent). The plain unavailable message directs repair with the matching
+offline installer; Quick/metadata remain available within their own requirements.
+L5 also verifies required model hashes before pixel work, with no downloads or
+substitute metrics. Preflight probes use the tracked/stopping-gated run_tool helper;
+Stop cannot admit a later probe and running probes participate in cancellation.
+Optional magnet-only OpenSSL loss keeps file checks available; missing private
+`libtorrent.cp311-win_amd64.pyd` blocks release. System32 OpenSSL is checked,
+never bundled/installed, and restricted disposable cp311 imports prove the payload.
+Packaged magnet actions report exactly: "Magnet links are unavailable on this PC
+(OpenSSL 1.1 files not found); file comparison still works". They provide no
+online package-manager advice. Source/developer guidance remains available.
+The sealed build_channel is release or qa; QA is never a distributable release.
+QA has separate uninstall/shortcut identity and never runs Python's installer.
+Release has no QA root dependency and verifies install-volume space directly.
+
+`GET /app/status` exposes preflight checks, suite_handshake, active jobs and Quit
+state. `POST /app/bootstrap`, `/app/quit` and `/app/open-log` use the packaged
+Origin/JSON/token rules in README.md. Closing a tab leaves work running; use
+Keep running, Quit when finished or Stop jobs and quit. Rollback uses installed
+`tools\activate_app_release.py --expected-previous CURRENT_BUILD` after Quit,
+with the current private Dashboard interpreter and verified previous release ID.
+No runtime npm or online repair; owner data remains outside immutable releases.
+Job Object failure leaves crash cleanup best effort. Installer/bootstrap and
+backend log paths and the full build pipeline are documented in README.md.
+
 ## 1. Principles
 
 - The Dashboard never imports the Comparizer engine. It starts `python -m videosuite <command> --json`.

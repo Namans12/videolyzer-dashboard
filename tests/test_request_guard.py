@@ -240,3 +240,20 @@ def test_non_http_scopes_pass_through():
     guard = request_guard.RequestGuard(inner)
     asyncio.run(guard({"type": "lifespan"}, None, None))
     assert seen == ["lifespan"]
+
+
+def test_production_guard_requires_the_configured_host():
+    import asyncio
+    from request_guard import RequestGuard
+
+    async def inner(scope, receive, send):
+        raise AssertionError("must reject before entering application")
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    guard = RequestGuard(inner, origin="http://127.0.0.1:49152", development=False)
+    asyncio.run(guard({"type": "http", "headers": [], "method": "GET", "path": "/"}, None, send))
+    assert sent[0]["status"] == 400

@@ -1,5 +1,144 @@
 # Video Metadata Analyzer Dashboard
 
+## Offline app launch and rollback
+
+The primary packaged shortcut runs `<I>\python\pythonw.exe` with stable
+`setup\launch_app.pyw`; `<I>` defaults to `D:\VideoComparatorPro`. It opens the
+actual local app origin and authenticated relaunch returns to the same instance.
+Private Python 3.11.9 venvs live at final `<I>\runtimes\<lock_sha256>\suite` and
+`<I>\runtimes\<lock_sha256>\dashboard`; a proven unchanged legacy suite `.venv`
+may be reused without modification. Code/assets live under
+`<I>\app\releases\<build_id>` with hash-checked `release.json`, selected by atomic
+`app\current.json` / `previous.json`. There is no runtime npm, package acquisition
+or silent CPU/model replacement. The only supported Part 1 target is the current
+Windows RTX 3050 Ti / CUDA 12.6 profile with VideoSuite 0.6.0 / `offline_payload`.
+Later 0.7.0 unified features are not claimed by this release.
+
+Source → test → artifact → installer → install: use existing dependencies to run
+Dashboard backend tests, `npm test`, `npm run lint`, `npm run build`; run both
+Comparizer gates with its mandated Python310 interpreter. Capture a fresh exact
+Dashboard source snapshot and export with the explicit script arguments below.
+Comparizer's `installer/build_installer.ps1 -DashboardArtifact ABS_ZIP -Acquisitions ABS_INVENTORY -BuildId BUILD`
+checks that artifact and the sealed finite L1 inventory, then compiles with exact
+installed Inno Setup 6.7.3. No build-time downloads; absent/unlisted inputs stop.
+Production requires the owner-committed source pair and `-RequireCommitted` export;
+`-Channel qa -QARoot ABS_OWNED_QA_ROOT -AllowDirty` explicitly selects QA.
+Release rejects QA roots/dirty overrides, keeps the production AppId and uses
+normal per-user temporary extraction plus the actual install-volume space check.
+QA has a distinct AppId, visible QA ONLY name and separate shortcuts. It never
+runs Python's registration-writing installer: preseed a verified QA-owned Python
+3.11.9 copy and pass `/QAPythonDir=ABS_QA_PYTHON_COPY` to its EXE. A clean Python
+installer step is not claimed by QA. Node.js 22.22.2 or a compatible supported newer version
+is for source builds; the packaged app serves built dist without Node or Vite.
+Only a separately authorized installed QA task may exercise clean/upgrade/rollback
+with isolated synthetic media/private torrents. Real-TV validation is owner-only.
+
+Quit before upgrade. Preserve dated copies of the entire protected owner suite
+and app data plus the existing install before production refresh. Maintenance
+refuses active app/Calibration writers, verifies a separate release, then switches
+pointers and primary shortcuts. Failure restores the previous pointers, stable
+launchers/tools and shortcuts. No rollback release/runtime/backup is deleted to
+fit. C: keeps a 3 GiB margin; D: retains measured build/runtime/backup budgets.
+The fresh owned QA scratch root selected explicitly at build time holds
+only QA/extraction, with actual expansion + 24 GiB QA + 3 GiB margin. Never inspect
+other E: folders/media; delete only that scratch root after later QA finishes.
+App data and restricted IPC stay on NTFS (E: is exFAT).
+
+For rollback, read the current Dashboard runtime and both build IDs from
+`current.json` / `previous.json`, then use installed `tools\activate_app_release.py`:
+
+```powershell
+$savedDataRoot = $env:VIDEOLYZER_DATA_ROOT
+$verificationRoot = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) ('VideoComparator-rollback-' + [guid]::NewGuid().ToString('N'))
+$createdVerificationRoot = $false
+try {
+    New-Item -ItemType Directory -Path $verificationRoot -ErrorAction Stop | Out-Null
+    $createdVerificationRoot = $true
+    $env:VIDEOLYZER_DATA_ROOT = $verificationRoot
+    & 'D:\VideoComparatorPro\runtimes\CURRENT_DASHBOARD_LOCK\dashboard\Scripts\python.exe' 'D:\VideoComparatorPro\tools\activate_app_release.py' --install-root 'D:\VideoComparatorPro' --release-id PREVIOUS_BUILD --expected-previous CURRENT_BUILD
+    if ($LASTEXITCODE -ne 0) { throw 'Rollback verification failed; current release retained' }
+} finally {
+    $env:VIDEOLYZER_DATA_ROOT = $savedDataRoot
+    if ($createdVerificationRoot -and (Test-Path -LiteralPath $verificationRoot)) { Remove-Item -LiteralPath $verificationRoot -Recurse -Force }
+}
+```
+
+The fresh verification directory must be on per-user NTFS storage. Standalone
+activation also creates and cleans owned temporary state when no override exists.
+
+Replace placeholders with verified pointer values; do not edit the pointers or
+move a venv. Activation validates the target and rejects a stale expected-current
+build. Installer early failures go to `<I>\install-bootstrap-*.log`, later runtime
+details to `<I>\install_log.txt`; **Open log** opens only the app's backend log.
+Uninstall preserves settings, calibration, observations, uploads and reports.
+Migration installs retain hidden root CLI/Tk launchers as manual fallbacks; for
+a clean install use the selected suite runtime from its release suite directory,
+with manifest tool directories on PATH. See Comparizer's VIDEOSUITE.md for details.
+The legacy source/developer setup below can download dependencies and is never
+the packaged upgrade/repair path.
+
+## Offline Dashboard artifact and first run
+
+Part 1 uses VideoSuite **0.6.0** with `offline_payload`. Build with the existing
+node_modules, then export from this checkout using `scripts/build-app-payload.ps1`
+with explicit `-Destination`, `-BuildId`, full `-Revision` and a fresh
+`-SnapshotManifest`. `-RequireCommitted` refuses dirty production artifacts.
+The named `dashboard-<build_id>.zip`, `.manifest.json` and `.sha256` contain the
+flat backend allowlist, built dist and exact runtime/npm locks. Source snapshots
+must match every current source file. Uploads, movies, reports, environments and
+node_modules are excluded. The exporter never reads a sibling checkout.
+
+Packaged `/app/status` checks both private Python 3.11.9 runtimes, their pinned
+package closure, suite capabilities, required model hashes/CUDA, explicit packaged
+tools (including ffmpeg libvmaf and the MediaInfo CLI), cp311 libtorrent and
+writable app scratch/report space. There are no first-run downloads. Missing or
+corrupt required models, unavailable required CUDA, or any other failed required Full-engine check
+refuse Full before its pixel worker starts; repair with the matching offline
+installer. Quick/metadata paths remain available within their own tool requirements.
+Missing optional tooling reports its own capability.
+The magnet-only current-PC prerequisite message is:
+“Magnet links are unavailable on this PC (OpenSSL 1.1 files not found); file comparison still works”.
+The existing System32 OpenSSL files are never bundled or installed. Their check
+runs in a disposable private cp311 process with restricted DLL search, approved
+app-local VC DLLs, private Python DLLs, and explicit packaged libtorrent; developer
+imports cannot satisfy release verification. Missing cp311 libtorrent blocks release.
+
+## Packaged app controls and reconnect
+
+You can close this tab. Reopen the shortcut to return. Use Quit to stop the app.
+Closing or unloading the browser never cancels a job or starts an idle shutdown
+timer. The packaged UI lists all active analysis, magnet, suite and calibration
+jobs from `GET /app/status` and reconnects their `/job/{job_id}` progress. Finished,
+failed, cancelled and missing jobs stop polling. Results are in memory for this
+app launch; there is no permanent history database.
+
+`POST /app/bootstrap {}` retains L3's exact Origin, JSON and same-origin Fetch
+Metadata checks. `POST /app/quit {"mode":"keep"|"when_finished"|"stop"}` and
+`POST /app/open-log {}` additionally require `X-VideoSuite-Token`. The random
+per-launch token stays in browser memory only, never a URL, storage or log.
+Missing/wrong token or Origin returns 403; non-JSON controls return 415. These
+controls require the packaged launcher; source development keeps its explicit
+two-server setup without privileged app controls.
+
+**Keep running** withdraws a pending when-finished Quit. **Quit when finished**
+blocks new work and waits for every job kind and registered worker.
+**Stop jobs and quit** requests cancellation immediately, waits up to 10 seconds, forces
+remaining owned child trees and waits up to 5 seconds. Uvicorn's graceful
+shutdown is bounded to 3 seconds. The response is sent before server shutdown.
+Stop cannot be withdrawn once cancellation begins. A surviving owned worker
+keeps the app and instance evidence alive, with an error in app status; the UI
+never claims successful Quit merely because cancellation was accepted. Python
+threads cannot be forcibly killed safely; a stuck native thread therefore
+produces this error instead of successful Quit. Job Object assignment failure
+retains the documented best-effort crash cleanup limitation.
+
+`app_lifecycle.py` owns admission/cancellation and `app_routes.py` owns guarded
+controls; both ship in `app-payload.json` with transitive-import closure tests.
+Tool children retain hidden Windows flags. Open log opens only the backend's
+fixed `logs/backend.log` under the explicit `VIDEOLYZER_DATA_ROOT` (default app
+data root); it accepts no user path. Existing launcher logs remain alongside it.
+No app control owns or closes the external browser.
+
 [![Frontend](https://img.shields.io/badge/Frontend-React%2019-1f7a8c?logo=react\&logoColor=white)](https://react.dev)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI-0ea5a5?logo=fastapi\&logoColor=white)](https://fastapi.tiangolo.com)
 [![Build](https://img.shields.io/badge/Build-Vite%20%2B%20TypeScript-ff7a00?logo=vite\&logoColor=white)](https://vitejs.dev)
@@ -76,6 +215,10 @@ Install these before running:
 
 ## Quick Start
 
+This section is legacy source development, with an explicitly separate backend
+and Vite origin. It can download dependencies; use the offline app section above
+for packaged launch, upgrade and repair.
+
 ### One-command local startup (recommended on Windows)
 
 ```bash
@@ -139,7 +282,72 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 npm run dev
 ```
 
+For two-server source development, set `VITE_API_BASE` to the explicit backend origin
+(for example `http://127.0.0.1:8000`) before `npm run dev`. Only http(s) origins on
+localhost, 127.0.0.1 or [::1] are accepted; paths, credentials and remote hosts are refused.
 Open the app at the URL printed by Vite (usually http://127.0.0.1:5173 or http://localhost:5173).
+
+Built production JavaScript always uses relative API, cancellation and SSE URLs;
+`VITE_API_BASE` is ignored in production. `npm run build` emits `dist` and a Vite
+asset manifest. The packaged Python host serves that build without runtime Node.
+It calls `configure_origin(app, actual_origin)` before ASGI startup, using the origin
+of its already-bound socket, then `install_static(app, dist)`. `main:app` is the
+two-server source-development entry and enables loopback development CORS.
+Static navigation is allowlisted: `/`, `/analyze`, `/suite`, `/calibration`.
+`/assets/{asset_path:path}` serves built assets and `/favicon.svg` serves the app icon;
+missing assets return 404.
+Unknown routes and reserved API prefixes never fall back to HTML.
+
+Packaged Windows startup uses the stable `<install>\setup\launch_app.pyw`
+shortcut under the install's private Pythonw. The supervisor resolves
+`app/current.json` from that file's installation, checks its `manifest_sha256`
+against `app/releases/<build_id>/release.json`, verifies the release inventory
+and selects the manifest's private suite and Dashboard runtimes. A pointer uses
+schema `videosuite-app-pointer/1`, `install_id`, `build_id`, `release`,
+`manifest_sha256` and `runtimes: {suite, dashboard}` (forward-slash paths relative
+to the install). Runtime references must match the manifest exactly. Traversal,
+reparse points, missing pointers and mismatched builds fail with a native dialog
+and a launcher log; legacy CLI/Tk entry points remain available.
+
+The launcher invokes the release's `app_host.py --ready-handle <inherited-handle>`
+using its private `Scripts\pythonw.exe`, an argument array and hidden Windows
+creation flags. This is an internal entry: the inherited duplex handle carries
+JSON release configuration and a fresh launch secret. The secret is never an
+argument, environment variable, URL, browser storage item or log entry.
+`serve(install_root, release, ready_pipe)` and `bind_loopback(preferred_port=8000)`
+are the hosting interfaces. The backend exclusively binds `127.0.0.1:8000`, or
+binds port `0` if occupied, and passes that same socket to uvicorn. Startup and
+suite-check status precede private readiness; no HTTP health probe can authorize
+opening a browser. The browser receives only the actual bound origin.
+
+A per-user SID mutex keeps the first launcher alive until backend exit. A
+user-only ACL protects its instance record and local named pipe. Second launches,
+including another installation, authenticate a fresh JSON activation exchange,
+build/install/session identities and PID creation time, then reopen the active
+app and identify its install/build. Stale or locked unverified state fails closed;
+unrelated listeners and processes are never adopted or terminated. Closing a
+browser has no lifecycle effect. The backend inherits a kill-on-close Job Object
+after assignment and before bootstrap; assignment failure is logged explicitly
+as best-effort crash cleanup. Coordinated user Quit is handled by app lifecycle.
+
+`GET /app/status` exposes public identity, startup checks and active jobs without
+credentials. `POST /app/bootstrap {}` requires the exact production Origin,
+`application/json`, `Sec-Fetch-Site: same-origin`, mode `cors` or `same-origin`,
+and destination `empty`; it returns an in-memory token with `Cache-Control:
+no-store`. Missing/foreign/null origins fail. Privileged app controls use this
+token in `X-VideoSuite-Token`, never in URLs. Same-user native programs are not
+an authentication boundary.
+
+`VIDEOLYZER_DATA_ROOT` selects the app data root (default
+`%LOCALAPPDATA%\VideoComparator\app`); uploads are created under its `uploads`
+child at startup, with no filesystem writes on import. Tests must override it.
+The launcher also uses its `instance` and `logs` children. Packaged startup sets
+absolute `VIDEOSUITE_PYTHON` and `VIDEOSUITE_ROOT` from the selected release,
+`VIDEOSUITE_OFFLINE=1`, packaged `TORCH_HOME`, `HF_HOME`, `CLIP_CACHE_DIR`,
+`HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1`, `PIP_NO_INDEX=1` and
+`PIP_DISABLE_PIP_VERSION_CHECK=1`. There is no runtime provisioning or download.
+`LOCALAPPDATA` supplies the per-user Windows default. Raw media paths are displayed
+as text rather than local-file links.
 
 If you need custom ports, run the script directly:
 
@@ -325,7 +533,11 @@ Residual risk (stated, not hidden):
 
 The backend listens on loopback but starts jobs, reads local paths and starts torrents on plain requests, so every request passes `request_guard.py` first:
 
-- `Host` must be `localhost`, `127.0.0.1` or `[::1]` (optional port), otherwise 400 (blocks DNS rebinding).
+- In the packaged host, `Host` must exactly match the actual bound `127.0.0.1:port`,
+  otherwise 400; a supplied `Origin` must exactly match its http origin, otherwise 403.
+  Production CORS permits only that exact origin, including preflight requests.
+  The following broader rules apply only to the `main:app` source-development entry.
+- Development `Host` must be `localhost`, `127.0.0.1` or `[::1]` (optional port), otherwise 400 (blocks DNS rebinding).
 - `Origin`, when sent, must be an http(s) loopback origin, otherwise 403 (includes `Origin: null`). An allowed Origin is trusted even when the browser labels the request `cross-site` (the UI on `localhost:5173` calling `127.0.0.1:8000`).
 - With no `Origin`, a request carrying `Sec-Fetch-Site: cross-site` or `same-site` is refused with 403 (blocks `<img>`/link/no-cors GET and cross-site navigations). `same-origin`, `none` and requests with neither header (curl, scripts, tests) pass.
 - `POST /magnet/`, `POST /compare-magnets/` and every `POST /suite/...` must be `application/json` (415 otherwise). The cancel routes and the multipart upload routes are not affected.
@@ -353,7 +565,7 @@ The backend reads these variables (all optional). The two path-guard `VIDEOLYZER
 
 | Variable | Read by | Meaning |
 | --- | --- | --- |
-| `VIDEOLYZER_ALLOWED_ROOTS` | `path_guard.py` | `;`-separated folders (for example `D:\Media;E:\Movies`). When set, every path must resolve inside one of them (else 403). Default empty: any local drive is allowed. |
+| `VIDEOLYZER_ALLOWED_ROOTS` | `path_guard.py` | `;`-separated folders (for example `D:\Media;D:\Movies`). When set, every path must resolve inside one of them (else 403). Default empty: any local drive is allowed. |
 | `VIDEOLYZER_ALLOW_REMOTE_DRIVES` | `path_guard.py` | `1` allows paths typed with a mapped network drive letter (they resolve to UNC; see the remote-drive rule under Security model). Anything else (default): refused with 400 `network drives are not allowed`. Paths typed as UNC and device paths stay refused. |
 | `VIDEOSUITE_PYTHON` | `suite_client.py` | Absolute path of the suite's `python.exe` (never a `.bat`, `.cmd` or a shell). Used together with `VIDEOSUITE_ROOT`. |
 | `VIDEOSUITE_ROOT` | `suite_client.py` | The suite folder that contains the `videosuite` package. It becomes the child's working folder and `PYTHONPATH`; its `tools\bin` and `ffmpeg\bin` folders are put on the child's PATH. |
@@ -427,7 +639,10 @@ The scripts folder includes quick diagnostics:
 - The job-starting GET routes `/analyze-path/` and `/scan-folder/` stay GET for UI compatibility; see Security model for the residual risk in old browsers. Plan 3 moves them to POST.
 - The Dashboard's own TV scoring is frozen Bravia-only legacy until Plan 3; magnet analyses now also carry device-aware partial scores in `suite`, while the existing winner still uses the legacy model.
 - Jobs live in memory only: a restart loses them, and only the newest 20 finished jobs are kept.
-- The magnet and torrent code is tested with fakes only (libtorrent is not installed on the development machine). Run one real magnet and the live check above after changing it.
+- Routine magnet/torrent tests use fakes. Native installed validation uses only
+  the separately authorized private local torrent fixture and generated media;
+  never a public magnet or owner media. A developer import does not prove the
+  packaged cp311/DLL closure.
 - The suite's `/suite` paths accept video files only, not folders (Plan 3 may revisit).
 - `playable` and `usb_compatible` can disagree for containers the Dashboard does not know (AVI, WebM, WMV), for 12-bit video and for pictures above 4K.
 - Deferred by plan: 4096x2160 is still reported as "exceeds 4K"; feature bonuses are still taken from the file name; the multipart advice limit (10 GB per file) and the request-body limit (120 GB) are two different numbers (see Troubleshooting; use the path input for big files).

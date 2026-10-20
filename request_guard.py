@@ -1,5 +1,8 @@
 """Request guard: a pure ASGI middleware that refuses requests a local web UI never makes.
 
+Production configure_origin supplies one exact Host and Origin. The loopback
+patterns below apply only to the explicitly configured development entry.
+
 The Dashboard listens on loopback and starts jobs, reads local paths and starts
 torrents on a plain GET/POST. Without a guard any web page the owner visits could
 drive it (CSRF, DNS rebinding). Rules, evaluated in this order (all matching is
@@ -19,9 +22,9 @@ drive it (CSRF, DNS rebinding). Rules, evaluated in this order (all matching is
    must be ``application/json`` (parameters ignored)            -> 415
    The no-body cancel routes are exempt (the UI sends no Content-Type).
 
-It must stay OUTSIDE ``MaxBodySizeMiddleware`` and INSIDE ``CORSMiddleware`` so
-preflights are answered by CORS and the refusals for an allowed origin still carry
-CORS headers.
+It stays outside ``MaxBodySizeMiddleware``. Development places CORS outermost
+so the separate UI can read refusals; production places this guard outermost
+so preflights also validate the exact Host and Origin.
 """
 from __future__ import annotations
 
@@ -52,8 +55,11 @@ def _header(headers: list[tuple[bytes, bytes]], name: bytes) -> str | None:
 
 
 class RequestGuard:
-    def __init__(self, app) -> None:
+    def __init__(self, app, *, origin: str | None = None, development: bool = False) -> None:
         self.app = app
+        self.origin = origin
+        self.host = origin.split("://", 1)[1] if origin else None
+        self.development = development
 
     async def __call__(self, scope, receive, send) -> None:
         if scope["type"] != "http":
@@ -66,10 +72,13 @@ class RequestGuard:
         fetch_site = _header(headers, b"sec-fetch-site")
 
         deny: tuple[int, str] | None = None
-        if host is not None and not HOST_RE.fullmatch(host.strip()):
+        if not self.development and (self.host is None or host != self.host):
+            deny = (400, "host not allowed")
+        elif host is not None and not HOST_RE.fullmatch(host.strip()):
             deny = (400, "host not allowed")
         elif origin is not None:
-            if not ORIGIN_RE.fullmatch(origin.strip()):
+            if ((not self.development and origin != self.origin)
+                    or not ORIGIN_RE.fullmatch(origin.strip())):
                 deny = (403, "origin not allowed")
         elif fetch_site is not None and fetch_site.strip().lower() not in SAFE_FETCH_SITES:
             deny = (403, "cross-site request refused")

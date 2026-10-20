@@ -22,10 +22,19 @@ README = (ROOT / "README.md").read_text(encoding="utf-8")
 
 FRAMEWORK_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 KNOWN_ENV_VARS = {
+    "VIDEOLYZER_DATA_ROOT", "LOCALAPPDATA",
     "VIDEOSUITE_PYTHON", "VIDEOSUITE_ROOT", "VIDEOSUITE_COMPARE_TIMEOUT_S",
     "VIDEOLYZER_ALLOWED_ROOTS", "VIDEOLYZER_ALLOW_REMOTE_DRIVES",
     "VIDEOLYZER_SUITE_STARTUP_CHECK",
 }
+
+
+def test_rollback_example_is_fresh_shell_safe():
+    block = next(b for b in re.findall(r'```powershell\n(.*?)\n```', README, re.S)
+                 if '--expected-previous' in b)
+    for text in ('VIDEOLYZER_DATA_ROOT', '[guid]::NewGuid()', 'try {', 'finally {',
+                 'Remove-Item -LiteralPath', '$savedDataRoot'):
+        assert text in block
 
 
 def own_route_paths() -> set[str]:
@@ -109,6 +118,23 @@ def test_every_own_route_is_mentioned_in_the_readme():
         if not re.search(re.escape(path) + r"(?![\w{}/-])", README):
             missing.append(path)
     assert not missing, f"routes missing from README.md: {missing}"
+    for text in ('/app/status', 'preflight', 'required Full-engine check', 'release.json'):
+        assert text in README, text
+
+
+def test_app_docs_describe_quit_offline_and_rollback():
+    for text in ('Keep running', 'Quit when finished', 'Stop jobs and quit',
+                 'You can close this tab. Reopen the shortcut to return. Use Quit to stop the app.',
+                 '<I>\\python\\pythonw.exe', '<I>\\runtimes\\<lock_sha256>\\suite',
+                 '<I>\\runtimes\\<lock_sha256>\\dashboard', 'no runtime npm',
+                 'tools\\activate_app_release.py', '--expected-previous',
+                 'install-bootstrap-', 'owner-only', 'Job Object'):
+        assert text in README, text
+    packaged = README.split('## Offline app launch and rollback', 1)[1].split('\n## ', 1)[0]
+    assert 'npm install' not in packaged and 'pip install' not in packaged
+    for name in ('ARCHITECTURE', 'TESTING', 'SUITE_INTEGRATION'):
+        text = (ROOT / 'docs' / (name + '.md')).read_text('utf-8')
+        assert 'offline_payload' in text and 'release.json' in text, name
 
 
 def test_every_environment_variable_read_is_documented_in_the_readme():

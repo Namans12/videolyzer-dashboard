@@ -12,7 +12,7 @@ const paths = [
   "D:\\" + "n".repeat(300) + ".mkv",
   "D:\\Media\\special ^ (1).mkv",
 ];
-const networkSentence = "The Dashboard backend is not answering (is it running on http://127.0.0.1:8000?).";
+const networkSentence = "The Dashboard backend is not answering. Check that the app is running.";
 
 describe("suite HTTP client", () => {
   it("refreshes devices and settings only when explicitly requested", async () => {

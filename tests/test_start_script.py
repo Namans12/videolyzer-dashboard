@@ -53,3 +53,4 @@ def test_dry_run_custom_python_and_ports():
     assert result.returncode == 0, result.stderr
     assert "& 'C:\\Owner''s Apps\\python.exe' -m uvicorn" in result.stdout
     assert "--port 9000" in result.stdout and "--port 6000" in result.stdout
+    assert "$env:VITE_API_BASE='http://127.0.0.1:9000'" in result.stdout

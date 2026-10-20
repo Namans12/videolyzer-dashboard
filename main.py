@@ -11,7 +11,6 @@ from functools import partial
 from typing import List
 import time
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.middleware.cors import CORSMiddleware
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -22,7 +21,10 @@ from analysis import analyze_file, scan_folder
 from magnet import MagnetUnavailable, NoFreePort, port_allocator, run_magnet_job_threaded
 from comparison import compare_releases, composite_score, enrich_release
 from series_compare import is_series_comparison, build_series_comparison
-from request_guard import RequestGuard
+from app_host import configure_origin
+from app_lifecycle import AppLifecycle
+from app_routes import install_app_routes
+import proc_guard
 from jobs import TERMINAL, jobs
 import suite_routes
 import suite_version
@@ -35,8 +37,10 @@ from path_guard import (
 
 logger = logging.getLogger("video-analyzer.api")
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+DATA_ROOT = os.environ.get("VIDEOLYZER_DATA_ROOT") or os.path.join(
+    os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "VideoComparator", "app"
+)
+UPLOAD_DIR = os.path.join(DATA_ROOT, "uploads")
 
 MAX_UPLOAD_BYTES = 120 * 1024 * 1024 * 1024    # 120 GB
 MIN_FREE_BYTES   = 20 * 1024 * 1024 * 1024  # 20 GB
@@ -45,6 +49,7 @@ MIN_FREE_BYTES   = 20 * 1024 * 1024 * 1024  # 20 GB
 # (done / error / cancelled), retention of the last 20 finished jobs purged
 # inside ``create`` (no timers). Kept under its old name for the tests and docs.
 _jobs = jobs
+lifecycle = AppLifecycle(jobs, proc_guard.workers)
 
 # Parallel analyses per batch/folder job.
 ANALYSIS_WORKERS = 4
@@ -62,7 +67,8 @@ def _guarded(job_id: str, worker):
     def run(path):
         if jobs.is_cancelled(job_id):
             return _SKIPPED
-        return worker(path)
+        with proc_guard.owner(job_id):
+            return worker(path)
     return run
 
 
@@ -90,6 +96,12 @@ def _patch_result_path(result: dict, temp_path: str, orig_name: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    log_dir = os.path.join(os.path.dirname(UPLOAD_DIR), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    app.state.app_log_path = os.path.join(log_dir, "backend.log")
+    handler = logging.FileHandler(app.state.app_log_path, encoding="utf-8")
+    logging.getLogger().addHandler(handler)
     for f in os.listdir(UPLOAD_DIR):
         try:
             os.remove(os.path.join(UPLOAD_DIR, f))
@@ -98,16 +110,41 @@ async def lifespan(app: FastAPI):
     logger.info("Upload dir cleaned on startup.")
     if os.environ.get(suite_version.ENV_STARTUP_CHECK, "1") != "0":
         suite_version.start_background_check()
-    yield
-    n = suite_client.kill_live_processes()
-    if n:
-        logger.info("stopped %d VideoSuite process(es) on shutdown", n)
+    try:
+        yield
+    finally:
+        watcher = getattr(app.state, "quit_watcher", None)
+        if watcher:
+            watcher.cancel()
+        clean = await asyncio.to_thread(lifecycle.drain)
+        if clean:
+            n = suite_client.kill_live_processes()
+            if n:
+                logger.info("stopped %d VideoSuite process(es) on shutdown", n)
+        logging.getLogger().removeHandler(handler)
+        handler.close()
 
 
 app = FastAPI(title="Video Metadata Analyzer", lifespan=lifespan)
+install_app_routes(app, lifecycle)
+
+
+@app.exception_handler(RuntimeError)
+async def admission_error(request: Request, exc: RuntimeError):
+    if not lifecycle.can_start_work() and "shutting down" in str(exc):
+        return JSONResponse(status_code=503, content={"detail": "App is shutting down; new jobs are refused."})
+    raise exc
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
+        if not lifecycle.can_start_work() and request.url.path in (
+            "/analysis/", "/analyze-multiple/", "/analyze-path/", "/scan-folder/",
+            "/magnet/", "/compare-magnets/", "/suite/score", "/suite/rank", "/suite/compare",
+            "/suite/calibration/plan", "/suite/calibration/build", "/suite/calibration/record",
+            "/suite/calibration/session",
+            "/suite/calibration/apply", "/suite/calibration/undo", "/comparison/plans", "/comparison/runs",
+        ):
+            return JSONResponse(status_code=503, content={"detail": "App is shutting down; new work is refused."})
         if request.method == "POST":
             content_length = request.headers.get("content-length")
             if content_length and int(content_length) > MAX_UPLOAD_BYTES:
@@ -121,15 +158,9 @@ class MaxBodySizeMiddleware(BaseHTTPMiddleware):
 # so preflights are answered before the guard and the guard's 4xx for an allowed
 # origin still carry CORS headers.
 app.add_middleware(MaxBodySizeMiddleware)
-app.add_middleware(RequestGuard)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# main:app is the two-server source-development entry. The packaged socket host
+# MUST replace this policy with configure_origin(app, actual_origin) before startup.
+configure_origin(app, "http://127.0.0.1:8000", development=True)
 
 # /suite/... (devices, score, rank, compare): the installed VideoSuite as guarded jobs.
 suite_routes.install(app)
@@ -160,6 +191,7 @@ def check_disk_space() -> None:
         pass
 
 
+@proc_guard.job_worker
 def _run_batch_job(job_id: str, saved_paths: list[str],
                    path_name_map: dict[str, str], fast: bool) -> None:
     total  = len(saved_paths)
@@ -210,6 +242,7 @@ def _run_batch_job(job_id: str, saved_paths: list[str],
                   "Error: no files could be analysed.")
 
 
+@proc_guard.job_worker
 def _run_single(job_id: str, path: str, name: str, fast: bool) -> None:
     try:
         if jobs.is_cancelled(job_id):
@@ -431,6 +464,7 @@ def analyze_video_path(background_tasks: BackgroundTasks, path: str, fast: bool 
     return {"job_id": job_id}
 
 
+@proc_guard.job_worker
 def _run_path_job(job_id: str, path: str, fast: bool) -> None:
     _emit(job_id, "Job started")
 
@@ -564,6 +598,7 @@ def _magnet_error_kind(exc: BaseException) -> str:
     return "internal"
 
 
+@proc_guard.job_worker
 def _run_magnet_job(job_id: str, magnet_uri: str, fast: bool,
                     enable_hdr10plus: bool = False) -> None:
     def emit(msg: str) -> None:
@@ -684,6 +719,7 @@ def cancel_compare(job_id: str):
     return _request_cancel_or_404(job_id)
 
 
+@proc_guard.job_worker
 def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
                      enable_hdr10plus: bool = False) -> None:
     def emit(msg: str) -> None:
@@ -771,7 +807,7 @@ def _run_compare_job(job_id: str, magnets: list[str], fast: bool,
             # Bounded parallel — each session on its own port.
             with ThreadPoolExecutor(max_workers=COMPARE_PARALLEL_LIMIT) as ex:
                 futures = [
-                    ex.submit(_run_one, i, m)
+                    ex.submit(proc_guard.inherit_owner(_run_one), i, m)
                     for i, m in enumerate(magnets)
                 ]
                 for _ in as_completed(futures):

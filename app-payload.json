@@ -1,0 +1,27 @@
+{
+  "schema": "videosuite-dashboard-payload/1",
+  "entry": "app_host.py",
+  "files": [
+    "analysis.py",
+    "app_host.py",
+    "app_lifecycle.py",
+    "app_preflight.py",
+    "app_routes.py",
+    "calibration_routes.py",
+    "comparison.py",
+    "filename_intel.py",
+    "hdr10plus_scan.py",
+    "jobs.py",
+    "magnet.py",
+    "magnet_suite.py",
+    "main.py",
+    "path_guard.py",
+    "proc_guard.py",
+    "request_guard.py",
+    "series_compare.py",
+    "suite_client.py",
+    "suite_routes.py",
+    "suite_version.py",
+    "verification.py"
+  ]
+}

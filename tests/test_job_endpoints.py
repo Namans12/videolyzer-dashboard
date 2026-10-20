@@ -545,3 +545,16 @@ def test_upload_file_names_lose_characters_that_are_invalid_on_windows(client, m
     assert os.path.dirname(path) == str(isolated_uploads)
     assert ":" not in base and base.split("_", 1)[1] == expected
     assert os.listdir(isolated_uploads) == []                 # no alternate data stream left behind either
+
+
+def test_shutdown_intent_refuses_legacy_suite_and_calibration_starts(client):
+    main.lifecycle.request_quit("when_finished")
+    for method, path in (("get", "/analyze-path/?path=C:/synthetic.mkv"),
+                         ("post", "/magnet/"), ("post", "/suite/compare"),
+                         ("post", "/suite/calibration/session"),
+                         ("post", "/suite/calibration/build")):
+        response = getattr(client, method)(path, **({"json": {}} if method == "post" else {}))
+        assert response.status_code == 503
+    assert main.jobs.ids() == []
+    main.lifecycle.request_quit("keep")
+    assert main.lifecycle.can_start_work()

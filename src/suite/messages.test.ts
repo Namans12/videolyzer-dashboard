@@ -9,7 +9,7 @@ import { versionInfo } from "./testing/fixtures";
 
 describe("plain status sentences", () => {
   it.each([
-    [0, "", "The Dashboard backend is not answering (is it running on http://127.0.0.1:8000?)."],
+    [0, "", "The Dashboard backend is not answering. Check that the app is running."],
     [400, "not a supported video file", "The request was refused: not a supported video file"],
     [403, "origin not allowed", "Access refused: origin not allowed"],
     [404, "path not found", "Not found: path not found"],

@@ -3,6 +3,34 @@
 A reference for future Claude Code sessions. Skim this before touching the
 backend; it'll save you from re-deriving the data flow.
 
+## Packaged Part 1 boundary
+
+The primary shortcut uses private Python 3.11.9 `pythonw.exe` and stable
+`setup\launch_app.pyw`. L3 validates atomic current/previous pointers and a
+hash-checked `release.json` for `app/releases/<build_id>/{suite,dashboard,models,tools}`.
+Final lock-keyed `runtimes/<lock_sha256>/{suite,dashboard}` are separate and immutable;
+only an exactly verified legacy suite env may be reused without modification.
+`app_host.py` binds one socket on 127.0.0.1:8000 or :0 and serves built dist with
+relative API/SSE/output URLs. There is no runtime npm/Vite or first-run acquisition.
+The payload is VideoSuite 0.6.0 / `offline_payload`, fixed RTX 3050 Ti / CUDA 12.6.
+
+`app_preflight.py` probes explicit private runtimes, model/tool hashes, required
+CUDA and cp311 libtorrent with restricted DLL search. `suite_client.py` repeats
+required Full admission before its worker starts; metadata paths remain available.
+All preflight child probes use `proc_guard.run_tool`, including its stopping gate
+and owned cancellation/wait callbacks. `app_lifecycle.py` owns Quit admission and
+draining; `app_routes.py` supplies token/Origin/JSON-guarded controls and status.
+Browser closure is not Quit; reconnect uses server state. An uncooperative owned
+worker keeps the instance alive with an error. Job Object assignment failure
+leaves crash cleanup best effort, without adopting foreign processes.
+
+Offline activation holds the per-user launcher lease and Calibration write lock,
+verifies the staged release, switches pointers and stable launchers/tools/shortcuts,
+and restores saved bytes on failed health checks. It never mutates a reused venv
+or owner data. `tools/activate_app_release.py` is the installed rollback entry;
+README.md documents the expected-current guard, logs and manual fallbacks. Native
+installed health and owner-only real-TV tests require separate validation.
+
 ## One-paragraph mental model
 
 A FastAPI backend wraps three offline tools (MediaInfo, ffprobe, dovi_tool) and

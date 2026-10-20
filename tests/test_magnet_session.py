@@ -73,7 +73,7 @@ def test_partial_hook_files_pause_and_cleanup(monkeypatch, ext, middle, mode):
     monkeypatch.setattr(magnet, "_load_libtorrent", lambda: lt)
     monkeypatch.setattr(magnet, "_check_temp_disk_space", lambda p: None)
     monkeypatch.setattr(magnet.time, "sleep", lambda s: None)
-    monkeypatch.setattr(magnet.subprocess, "run", lambda *a, **kw: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(magnet.proc_guard, "run_tool", lambda *a, **kw: types.SimpleNamespace(returncode=0))
     monkeypatch.setattr(magnet, "_should_middle_sample", lambda *a: middle)
     monkeypatch.setattr(magnet, "tail_is_present", lambda *a: True)
     monkeypatch.setattr(magnet, "analyze_file", lambda *a, **kw: {"score": 5})
@@ -143,7 +143,7 @@ def test_hostile_name_is_sanitised_for_the_suite_but_not_for_display(monkeypatch
     monkeypatch.setattr(magnet, "_load_libtorrent", lambda: lt)
     monkeypatch.setattr(magnet, "_check_temp_disk_space", lambda p: None)
     monkeypatch.setattr(magnet.time, "sleep", lambda s: None)
-    monkeypatch.setattr(magnet.subprocess, "run", lambda *a, **kw: types.SimpleNamespace(returncode=0))
+    monkeypatch.setattr(magnet.proc_guard, "run_tool", lambda *a, **kw: types.SimpleNamespace(returncode=0))
     monkeypatch.setattr(magnet, "_should_middle_sample", lambda *a: False)
     monkeypatch.setattr(magnet, "tail_is_present", lambda *a: True)
     monkeypatch.setattr(magnet, "analyze_file", lambda *a, **kw: {"score": 5})
@@ -394,6 +394,28 @@ def test_missing_libtorrent_raises_magnet_unavailable(monkeypatch):
         )
 
 
+def test_packaged_missing_openssl_has_exact_file_comparison_message(monkeypatch):
+    import builtins
+    original = builtins.__import__
+    def missing(name, *args, **kwargs):
+        if name == 'libtorrent':
+            raise ImportError('DLL load failed: libcrypto-1_1-x64.dll not found')
+        return original(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, '__import__', missing)
+    monkeypatch.setenv('VIDEOSUITE_OFFLINE', '1')
+    with pytest.raises(magnet.MagnetUnavailable) as exc:
+        magnet._load_libtorrent()
+    assert str(exc.value) == ('Magnet links are unavailable on this PC '
+        '(OpenSSL 1.1 files not found); file comparison still works')
+
+
+def test_source_missing_libtorrent_preserves_developer_guidance(monkeypatch):
+    monkeypatch.delenv('VIDEOSUITE_OFFLINE', raising=False)
+    monkeypatch.setitem(sys.modules, 'libtorrent', None)
+    with pytest.raises(magnet.MagnetUnavailable, match='pip install libtorrent'):
+        magnet._load_libtorrent()
+
+
 def test_pure_helpers_do_not_import_libtorrent(monkeypatch):
     monkeypatch.setitem(sys.modules, "libtorrent", None)
     magnet.session_settings(6881)
@@ -583,3 +605,27 @@ def test_compare_releases_port_after_exception(client, monkeypatch):
     client.post("/compare-magnets/", json={"magnets": [MAGNET, MAGNET.replace("b", "c")]})
     assert len(ports) == 2
     assert main.port_allocator.in_use() == frozenset()
+
+
+def test_outer_timeout_cancels_drains_and_pauses_owned_session(monkeypatch):
+    entered, paused, closed = threading.Event(), threading.Event(), threading.Event()
+    class Session:
+        def pause(self): paused.set()
+    def fetch(*args, _control, cancel_check, **kwargs):
+        _control.set_session(Session())
+        entered.set()
+        assert _control.stop.wait(1)
+        assert cancel_check()
+        assert paused.wait(1)
+        closed.set()
+        _control.set_session(None)
+        raise RuntimeError("Cancelled")
+    monkeypatch.setattr(magnet, "fetch_magnet_metadata", fetch)
+    monkeypatch.setattr(magnet, "METADATA_TIMEOUT_S", -30)
+    monkeypatch.setattr(magnet, "PIECE_TIMEOUT_S", 0)
+    monkeypatch.setattr(magnet, "PROBE_MAX_S", 0)
+    with pytest.raises(TimeoutError):
+        with magnet.proc_guard.owner("magnet-job"):
+            magnet.run_magnet_job_threaded(MAGNET, True, lambda _: None, lambda: False)
+    assert entered.is_set() and paused.is_set() and closed.is_set()
+    assert magnet.proc_guard.workers.wait_all(.2)

@@ -6,7 +6,7 @@ import { JOB_GONE_TEXT } from "./jobStatus";
 import { callsTo, installFetch, jsonResponse, unexpectedFetch } from "./suite/testing/fetchMock";
 import { legacyVideo } from "./suite/testing/fixtures";
 
-const API = "http://127.0.0.1:8000";
+const API = "";
 const path = "D:\\Media\\clip.mkv";
 
 async function advance(ms: number) {

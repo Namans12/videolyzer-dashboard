@@ -52,7 +52,7 @@ interface Session {
   timer: ReturnType<typeof setTimeout> | undefined;
   stopped: boolean;
   cancelling: boolean;
-  stop: () => void;
+  stop: (abort?: boolean) => void;
 }
 
 const IDLE: Snapshot = {
@@ -80,11 +80,12 @@ function fromJob(job: Job, prev: Snapshot): Snapshot {
 function newSession(id: string): Session {
   const session: Session = {
     id, ctrl: new AbortController(), timer: undefined, stopped: false, cancelling: false,
-    stop: () => {
+    stop: (abort = true) => {
+      if (session.stopped) return;
       session.stopped = true;
       if (session.timer !== undefined) clearTimeout(session.timer);
       session.timer = undefined;
-      session.ctrl.abort();
+      if (abort) session.ctrl.abort();
     },
   };
   return session;
@@ -111,7 +112,10 @@ export function useJob(jobId: string | null): UseJobResult {
         if (session.stopped) return;
         failures = 0;
         publish((prev) => fromJob(job, prev));
-        if (isTerminalStatus(job.status)) session.stop();
+        // The response body has been consumed. Aborting its fetch here generates
+        // a native AbortError at ordinary job completion in the packaged browser.
+        // Disposal/replacement still aborts genuinely outstanding requests.
+        if (isTerminalStatus(job.status)) session.stop(false);
         else session.timer = setTimeout(tick, POLL_MS);
       } catch (err) {
         if (session.stopped) return;

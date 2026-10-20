@@ -1,7 +1,7 @@
 param(
-    [Alias("Host")][ValidatePattern('^[A-Za-z0-9.:\[\]-]+$')][string]$BindHost = "127.0.0.1",
-    [int]$ApiPort = 8000,
-    [int]$WebPort = 5173,
+    [Alias("Host")][ValidateSet('127.0.0.1', 'localhost', '[::1]')][string]$BindHost = "127.0.0.1",
+    [ValidateRange(1,65535)][int]$ApiPort = 8000,
+    [ValidateRange(1,65535)][int]$WebPort = 5173,
     [string]$Python = "python",
     [switch]$Dev,
     [switch]$DryRun
@@ -17,7 +17,7 @@ $safeRoot = $repoRoot.Replace("'", "''")
 $safePython = $Python.Replace("'", "''")
 $reload = if ($Dev) { " --reload" } else { "" }
 $backendCmd = "Set-Location -LiteralPath '$safeRoot'; & '$safePython' -m uvicorn main:app$reload --host $BindHost --port $ApiPort --timeout-graceful-shutdown 3"
-$frontendCmd = "Set-Location -LiteralPath '$safeRoot'; npm run dev -- --host $BindHost --port $WebPort"
+$frontendCmd = "Set-Location -LiteralPath '$safeRoot'; `$env:VITE_API_BASE='http://${BindHost}:${ApiPort}'; npm run dev -- --host $BindHost --port $WebPort --strictPort"
 if ($DryRun) {
     Write-Output "backend: $backendCmd"
     Write-Output "frontend: $frontendCmd"
@@ -26,12 +26,12 @@ if ($DryRun) {
 if ($Dev) { Write-Host "Dev mode: --reload restarts the backend on every file change and cancels running jobs." }
 
 Write-Host "Starting backend on http://${BindHost}:${ApiPort} ..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", $backendCmd | Out-Null
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-NoExit", "-Command", $backendCmd | Out-Null
 
 Write-Host "Starting frontend on http://${BindHost}:${WebPort} ..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontendCmd | Out-Null
+Start-Process powershell -WindowStyle Hidden -ArgumentList "-NoExit", "-Command", $frontendCmd | Out-Null
 
 Write-Host ""
-Write-Host "Both services were launched in separate PowerShell windows."
+Write-Host "Both development services were launched in hidden PowerShell windows."
 Write-Host "Backend health: http://${BindHost}:${ApiPort}/health/"
 Write-Host "Frontend UI:   http://${BindHost}:${WebPort}/"
