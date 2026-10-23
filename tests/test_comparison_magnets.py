@@ -437,3 +437,138 @@ def test_both_magnets_keep_overall_when_settings_change_while_reading_facts(seam
     assert jobs.jobs.get(job_id)['error_kind'] == 'settings_changed'
     assert result['overall'] is not None and result['device'] is None and result['coverage']['complete']
     assert client.kwargs('quick')['results'] == 'overall'
+
+
+ERROR_CASES = [
+    (TimeoutError('metadata wait expired'), 'timeout', 'No peers answered within 90 seconds'),
+    (ValueError('Invalid magnet URI'), 'invalid_uri', 'This magnet link or its selected video entry is invalid'),
+    (RuntimeError('native session failed'), 'torrent_runtime', 'The torrent engine failed'),
+    (OSError(28, 'disk full'), 'disk_space', 'Not enough free space'),
+    (PermissionError('denied'), 'storage', 'The app could not read or write its temporary torrent files'),
+    (magnet.NoFreePort('pool full'), 'busy', 'All torrent connections are busy'),
+    (LookupError('unexpected shape'), 'internal', 'An unexpected error'),
+]
+
+
+@pytest.mark.parametrize('exc,kind,reason', ERROR_CASES)
+@pytest.mark.parametrize('stage', ['metadata', 'partial_facts'])
+def test_magnet_failure_mapping_is_specific_and_logged(exc, kind, reason, stage, caplog):
+    with caplog.at_level('WARNING', logger=cr.logger.name):
+        actual_kind, message = cr._magnet_failure(exc, MAGNET, stage)
+    assert actual_kind == kind
+    # A generic partial-stage timeout must not pretend metadata failed.
+    expected = 'Torrent reading timed out' if stage == 'partial_facts' and kind == 'timeout' else reason
+    assert expected in message
+    assert type(exc).__name__ in caplog.text and str(exc) in caplog.text
+    assert MAGNET.split(':')[-1] in caplog.text and stage in caplog.text
+
+
+def test_magnet_diagnostics_redact_uris_tokens_and_control_characters(caplog):
+    uri = MAGNET + '&tr=https://tracker.invalid/SECRET?token=TRACKER_SECRET'
+    exc = RuntimeError('session ' + uri + ' https://host.invalid/?token=OTHER_SECRET token=BARE_SECRET\nforged log')
+    with caplog.at_level('WARNING', logger=cr.logger.name):
+        kind, reason = cr._magnet_failure(exc, uri, 'metadata')
+    assert kind == 'torrent_runtime' and 'SECRET' not in reason
+    assert all(s not in caplog.text for s in ('SECRET', 'magnet:?', 'https://', '\nforged log'))
+    assert 'RuntimeError' in caplog.text and 'session' in caplog.text
+
+
+def test_metadata_timeout_during_selected_fetch_reports_actual_discovery_budget(caplog):
+    kind, reason = cr._magnet_failure(magnet.MagnetMetadataTimeout(12.5), MAGNET, 'partial_facts')
+    assert kind == 'timeout' and 'No peers answered within 12.5 seconds' in reason
+    assert 'MagnetMetadataTimeout' in caplog.text
+
+
+def test_parse_cause_is_logged_with_redaction(caplog):
+    cause = RuntimeError('bad query ' + MAGNET + '&tr=udp://tracker.invalid/SECRET?token=SECRET')
+    exc = ValueError('Invalid magnet URI')
+    exc.__cause__ = cause
+    cr._magnet_failure(exc, MAGNET, 'metadata')
+    assert 'caused by RuntimeError: bad query' in caplog.text
+    assert 'SECRET' not in caplog.text and 'magnet:?' not in caplog.text
+
+
+def test_windows_disk_full_maps_to_free_space_reason():
+    exc = OSError('disk full')
+    exc.winerror = 112
+    kind, reason = cr._magnet_failure(exc, MAGNET, 'partial_facts')
+    assert kind == 'disk_space' and 'Not enough free space' in reason
+
+
+@pytest.mark.parametrize('exc,kind,reason', ERROR_CASES)
+@pytest.mark.parametrize('stage', ['metadata', 'partial_facts'])
+def test_bad_magnet_does_not_hide_reason_or_stop_good_link(seams, tmp_path, monkeypatch, exc, kind, reason, stage):
+    fake_torrent(monkeypatch, tmp_path)
+    original = magnet.run_magnet_job_threaded
+    def torrent(uri, *args, **kwargs):
+        phase = 'metadata' if kwargs.get('metadata_only') else 'partial_facts'
+        if uri == MAGNET and phase == stage:
+            raise exc
+        return original(uri, *args, **kwargs)
+    monkeypatch.setattr(magnet, 'run_magnet_job_threaded', torrent)
+    client = RealPartialSuite(tmp_path)
+    run_id = planned(request(), client)
+    if stage == 'partial_facts':
+        job_id, lease = confirmed(run_id, client, slot='score_rank')
+        cr.execute_run(run_id, client, lease=lease)
+    candidates = cr.store.get(run_id)['candidates']
+    assert candidates[0]['status'] == 'failed'
+    expected = 'Torrent reading timed out' if stage == 'partial_facts' and kind == 'timeout' else reason
+    assert expected in candidates[0]['reason']
+    assert candidates[1]['status'] == ('pending' if stage == 'metadata' else 'ready')
+    assert not magnet.port_allocator.in_use()
+
+
+@pytest.mark.parametrize('stage', ['metadata', 'partial_facts'])
+def test_magnet_cancel_is_logged_and_stops_run(seams, tmp_path, monkeypatch, caplog, stage):
+    import jobs
+    fake_torrent(monkeypatch, tmp_path)
+    original = magnet.run_magnet_job_threaded
+    seen = []
+    def torrent(uri, *args, **kwargs):
+        phase = 'metadata' if kwargs.get('metadata_only') else 'partial_facts'
+        if phase == stage:
+            seen.append(uri)
+            raise RuntimeError('Cancelled')
+        return original(uri, *args, **kwargs)
+    monkeypatch.setattr(magnet, 'run_magnet_job_threaded', torrent)
+    client = RealPartialSuite(tmp_path)
+    with caplog.at_level('WARNING', logger=cr.logger.name):
+        if stage == 'metadata':
+            run_id = cr.store.create(request())
+            job_id = jobs.jobs.create('comparison_plan', run_id=run_id)
+            cr.store.update(run_id, job_id=job_id)
+            cr.plan_run(run_id, client)
+        else:
+            run_id = planned(request(), client)
+            job_id, lease = confirmed(run_id, client, slot='score_rank')
+            cr.execute_run(run_id, client, lease=lease)
+    assert cr.store.get(run_id)['stage'] == 'cancelled'
+    assert jobs.jobs.get(job_id)['status'] == 'cancelled' and len(seen) == 1
+    assert 'RuntimeError' in caplog.text and 'Cancelled' in caplog.text
+
+
+@pytest.mark.parametrize('stage', ['metadata', 'partial_facts'])
+def test_missing_libtorrent_retains_unavailable_handling(seams, tmp_path, monkeypatch, caplog, stage):
+    import jobs
+    fake_torrent(monkeypatch, tmp_path)
+    original = magnet.run_magnet_job_threaded
+    def torrent(uri, *args, **kwargs):
+        if (kwargs.get('metadata_only') is True) == (stage == 'metadata'):
+            raise magnet.MagnetUnavailable('Torrent support is unavailable.')
+        return original(uri, *args, **kwargs)
+    monkeypatch.setattr(magnet, 'run_magnet_job_threaded', torrent)
+    client = RealPartialSuite(tmp_path)
+    with caplog.at_level('WARNING', logger=cr.logger.name):
+        if stage == 'metadata':
+            run_id = cr.store.create(request())
+            job_id = jobs.jobs.create('comparison_plan', run_id=run_id)
+            cr.store.update(run_id, job_id=job_id)
+            cr.plan_run(run_id, client)
+            assert jobs.jobs.get(job_id)['error_kind'] == 'unavailable'
+        else:
+            run_id = planned(request(), client)
+            job_id, lease = confirmed(run_id, client, slot='score_rank')
+            cr.execute_run(run_id, client, lease=lease)
+            assert all('Torrent support is unavailable.' in c['reason'] for c in cr.store.get(run_id)['candidates'])
+    assert 'MagnetUnavailable' in caplog.text

@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import copy
+import errno
 import hashlib
 import json
 import logging
@@ -791,6 +792,49 @@ def _torrent(*args, **kwargs):
         return magnet.run_magnet_job_threaded(*args, listen_port=port, **kwargs)
 
 
+def _magnet_failure(exc: Exception, uri: str, stage: str) -> tuple[str, str]:
+    """One safe diagnostic and one plain reason, shared by both torrent stages.
+
+    Never log raw tracebacks here: native exception messages/causes can contain
+    full tracker URLs and their credentials. Retain the hash, type and redacted
+    message so the installed backend log can distinguish discovery from runtime.
+    """
+    def safe(message):
+        message = re.sub(r"(?i)(?:magnet:\?[^\s'\"<>]+|[a-z][a-z0-9+.-]*://[^\s'\"<>]+)",
+                         '<redacted URI>', str(message))
+        message = re.sub(r"(?i)\b[\w-]*(?:token|secret|password|passkey|api[_-]?key|authorization)[\w-]*"
+                         r"\s*[=:]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+)", '<redacted credential>', message)
+        return ''.join(c if c.isprintable() else ' ' for c in message)[:500]
+
+    match = re.search(r'(?i)urn:btih:([0-9a-f]{40}|[a-z2-7]{32})(?=&|$)', uri)
+    details = f'{type(exc).__name__}: {safe(exc)}'
+    if exc.__cause__ is not None:
+        details += f'; caused by {type(exc.__cause__).__name__}: {safe(exc.__cause__)}'
+    logger.warning('Magnet %s hash=%s: %s', stage, match.group(1) if match else 'unknown', details)
+
+    if isinstance(exc, magnet.MagnetUnavailable):
+        return 'unavailable', str(exc)
+    if isinstance(exc, RuntimeError) and str(exc).strip().lower() == 'cancelled':
+        return 'cancelled', 'Torrent reading was cancelled.'
+    if isinstance(exc, TimeoutError):
+        if isinstance(exc, magnet.MagnetMetadataTimeout) or stage == 'metadata':
+            seconds = exc.seconds if isinstance(exc, magnet.MagnetMetadataTimeout) else magnet.METADATA_TIMEOUT_S
+            return 'timeout', (f'No peers answered within {seconds:g} seconds: the torrent may have no live seeds, '
+                               'or your firewall blocks the app. Try again or use another link.')
+        return 'timeout', 'Torrent reading timed out. Try again or use another link with live seeds.'
+    if isinstance(exc, ValueError):
+        return 'invalid_uri', 'This magnet link or its selected video entry is invalid. Check the link and choose the video again.'
+    if isinstance(exc, OSError):
+        if exc.errno == errno.ENOSPC or getattr(exc, 'winerror', None) == 112:
+            return 'disk_space', 'Not enough free space for temporary torrent files. Free space on the temporary drive and try again.'
+        return 'storage', 'The app could not read or write its temporary torrent files. Check folder access and try again.'
+    if isinstance(exc, magnet.NoFreePort):
+        return 'busy', 'All torrent connections are busy. Wait for another magnet job to finish and try again.'
+    if isinstance(exc, RuntimeError):
+        return 'torrent_runtime', 'The torrent engine failed while reading this link. Try again or check the backend log.'
+    return 'internal', 'An unexpected error stopped torrent reading. Check the backend log for details.'
+
+
 def _plan_magnets(run_id, job_id, client):
     snap, private = store.get(run_id), store.private(run_id)
     request = snap['request']
@@ -816,9 +860,14 @@ def _plan_magnets(run_id, job_id, client):
             status = 'pending' if selected else 'selection_required' if index is None and entries else 'failed'
             reason = None if selected else 'Choose one video entry for this link.' if entries and index is None else 'No selected playable entry.'
         except magnet.MagnetUnavailable as exc:
+            _magnet_failure(exc, link['uri'], 'metadata')
             raise _Failure('unavailable', str(exc)) from None
-        except Exception:
-            entries, index, status, reason, selected = [], link['file_index'], 'failed', 'Torrent metadata could not be read.', None
+        except Exception as exc:
+            kind, reason = _magnet_failure(exc, link['uri'], 'metadata')
+            if kind == 'cancelled':
+                raise _Cancelled() from None
+            _check_cancel(job_id)
+            entries, index, status, selected = [], link['file_index'], 'failed', None
         candidates.append(dict(candidate_id=f'c{i}', kind='magnet', path=None, uri=link['uri'],
                                file_index=index, status=status, record_id=None, reason=reason,
                                size=selected['size'] if selected else None, mtime_ns=None, entries=entries))
@@ -874,9 +923,14 @@ def _execute_magnets(run_id, job_id, client, state):
                 if detached:
                     row.update(detached[0], key=key)
             except magnet.MagnetUnavailable as exc:
+                _magnet_failure(exc, candidate['uri'], 'partial_facts')
                 row['error'] = dict(status='unavailable', error_kind='unavailable', message=str(exc))
-            except Exception:
-                row['error'] = dict(status='error', error_kind='probe', message='Selected torrent entry could not be probed.')
+            except Exception as exc:
+                kind, message = _magnet_failure(exc, candidate['uri'], 'partial_facts')
+                if kind == 'cancelled':
+                    raise _Cancelled() from None
+                _check_cancel(job_id)
+                row['error'] = dict(status='error', error_kind=kind, message=message)
         if 'record' not in row:
             row.setdefault('error', dict(status='error', error_kind='probe', message=candidate['reason'] or 'No partial facts.'))
             candidate.update(status='failed', reason=row['error']['message'])

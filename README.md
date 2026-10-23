@@ -667,7 +667,17 @@ Bravia scoring, middle sampling, deep Dolby Vision scanning or measured picture 
 remain visible and prevent a whole-set winner. Device/Both preserve the selected primary and evaluated players.
 Full magnets are refused before torrent work. Legacy magnet routes retain their existing defaults.
 If the packaged OpenSSL prerequisites are absent: "Magnet links are unavailable on this PC (OpenSSL 1.1 files not found); file comparison still works".
-No public torrent peers are used in automated tests; real swarm QA uses only generated private loopback fixtures.
+Discovery timeouts (90 seconds), invalid links/entries, torrent-engine failures, temporary-disk failures and
+busy connections now have specific per-link reasons in both planning and selected-file Quick. One bad link
+does not stop other links; cancellation stops the run. The backend log records the stage, info-hash and
+exception type/message with URI/credential redaction. Native fatal metadata/storage alerts are surfaced
+instead of discarded; an `add_torrent` runtime error is no longer labeled an invalid URI.
+No public torrent peers are used in automated tests. `PLAN4B_PUBLIC_LOOPBACK_PYTHON` opts into
+`tests/test_magnet_public_loopback.py` using an existing interpreter with libtorrent: a generated **non-private**,
+trackerless torrent exchanges real ut_metadata over `127.0.0.1` via an `x.pe` hint, then runs selected-file
+partial facts and device Quick. DHT/bootstrap/LSD/UPnP/NAT-PMP are disabled and all other IPs blocked.
+This proves public metadata exchange with `upload_mode` on libtorrent 2.0.11, not public peer availability
+or the installed runtime. See `docs/TESTING.md` for scratch overrides and the command.
 
 `POST /app/choose-files {}` opens the Windows multi-file dialog on one serialized daemon native UI thread. It requires
 the per-launch token, exact Origin and JSON, and refuses concurrent dialogs. Cancel returns `paths: []` and

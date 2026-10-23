@@ -467,6 +467,68 @@ def test_fetch_uses_session_settings_plus_alert_mask(monkeypatch):
     assert set(passed) <= ALLOWED_SETTINGS_KEYS
 
 
+def test_add_torrent_runtime_failure_is_not_invalid_uri(monkeypatch):
+    lt = _FakeLtFull()
+    failure = RuntimeError('native add_torrent failed')
+    class Session(lt.session):
+        def add_torrent(self, params):
+            raise failure
+    lt.session = Session
+    monkeypatch.setattr(magnet, '_load_libtorrent', lambda: lt)
+    monkeypatch.setattr(magnet, '_check_temp_disk_space', lambda p: None)
+    monkeypatch.setattr(magnet.time, 'sleep', lambda s: None)
+    with pytest.raises(RuntimeError) as caught:
+        magnet.fetch_magnet_metadata('magnet:?xt=urn:btih:' + 'b' * 40)
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize('error', ['torrent_error_alert', 'file_error_alert'])
+def test_metadata_error_alert_is_not_discarded(monkeypatch, error):
+    lt = _FakeLtFull()
+    class Session(lt.session):
+        def add_torrent(self, params):
+            handle = super().add_torrent(params)
+            handle.status = lambda: types.SimpleNamespace(has_metadata=False)
+            self.pop_alerts = lambda: [type(error, (), {'handle': handle,
+                'message': lambda self: 'native metadata failure',
+                'error': types.SimpleNamespace(value=lambda: 5, message=lambda: 'native metadata failure')})()]
+            return handle
+    lt.session = Session
+    monkeypatch.setattr(magnet, '_load_libtorrent', lambda: lt)
+    monkeypatch.setattr(magnet, '_check_temp_disk_space', lambda p: None)
+    monkeypatch.setattr(magnet, 'METADATA_TIMEOUT_S', -1)
+    monkeypatch.setattr(magnet.time, 'sleep', lambda s: None)
+    with pytest.raises(OSError if error == 'file_error_alert' else RuntimeError, match='native metadata failure'):
+        magnet.fetch_magnet_metadata('magnet:?xt=urn:btih:' + 'b' * 40)
+
+
+def test_metadata_deadline_is_monotonic_and_preserves_its_budget(monkeypatch):
+    lt = _FakeLtFull()
+    class Session(lt.session):
+        def add_torrent(self, params):
+            handle = super().add_torrent(params)
+            handle.status = lambda: types.SimpleNamespace(has_metadata=False)
+            return handle
+    lt.session = Session
+    monkeypatch.setattr(magnet, '_load_libtorrent', lambda: lt)
+    monkeypatch.setattr(magnet, '_check_temp_disk_space', lambda p: None)
+    monkeypatch.setattr(magnet, 'METADATA_TIMEOUT_S', 7.5)
+    monkeypatch.setattr(magnet.time, 'monotonic', iter([10.0, 18.0]).__next__)
+    monkeypatch.setattr(magnet.time, 'time', lambda: pytest.fail('wall clock used for metadata deadline'))
+    monkeypatch.setattr(magnet.time, 'sleep', lambda s: None)
+    with pytest.raises(magnet.MagnetMetadataTimeout) as caught:
+        magnet.fetch_magnet_metadata('magnet:?xt=urn:btih:' + 'b' * 40)
+    assert caught.value.seconds == 7.5
+
+
+def test_low_disk_error_has_enospc_identity(monkeypatch, tmp_path):
+    import errno
+    monkeypatch.setattr(magnet.shutil, 'disk_usage', lambda p: types.SimpleNamespace(free=1024))
+    with pytest.raises(OSError, match='Not enough free space') as caught:
+        magnet._check_temp_disk_space(str(tmp_path))
+    assert caught.value.errno == errno.ENOSPC
+
+
 # ── /magnet/ and /compare-magnets/ use the process-wide allocator ────────────
 
 MAGNET = "magnet:?xt=urn:btih:" + "b" * 40

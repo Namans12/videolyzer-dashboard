@@ -527,8 +527,23 @@ and await its response; no global pending-plan cancellation affects other tabs.
 `estimate.pairs` counts scheduled readable pairs; `coverage.expected_pairs` counts
 all submitted pairs. See README for bounded, marked-only 30-day orphan retention.
 
+Both unified magnet stages report per-link reasons for discovery timeout, invalid link/entry,
+torrent-engine failure, insufficient temporary space, folder-access failure and busy connections.
+Cancellation stops the run; missing libtorrent retains the existing unavailable handling. Each
+failure logs its stage, hash, exception type and sanitized message through `video-analyzer.comparison`
+(the installed backend log); full magnet/tracker URLs and credentials are redacted, including causes.
+Native fatal metadata/storage alerts are no longer discarded and `add_torrent` runtime errors are
+not rewritten as invalid links. The metadata deadline uses monotonic time; its 90-second budget,
+session discovery settings and legacy endpoint defaults are unchanged.
+
+The opt-in **public, trackerless loopback** proof uses real ut_metadata (no injected torrent_info)
+and selected-file facts/device Quick on generated content. `upload_mode` permits that metadata
+exchange with libtorrent 2.0.11 while preventing payload during planning. This does not establish
+that a real public swarm has reachable seeds or prove the cause of an installed failure.
+
 ## 7. Testing
 
 - `tests/test_suite_client.py` and `tests/test_suite_routes.py` use fake processes and the fixtures; no real subprocess, no taskkill.
 - `tests/test_live_suite.py` (opt-in, `VIDEOLYZER_LIVE_SUITE=1`) runs real `devices`, `version`, `score` and `score_partial` on generated clips; see `docs/TESTING.md`.
+- `tests/test_magnet_public_loopback.py` (opt-in, `PLAN4B_PUBLIC_LOOPBACK_PYTHON` names an existing binding interpreter) tests real public ut_metadata and selected-file Quick strictly on loopback; see `docs/TESTING.md`.
 - Regenerate with `.\.venv\Scripts\python.exe scripts/make_suite_fixtures.py`; the script isolates settings/cache and normalizes paths in generated 0.4.0 fixtures. See `docs/TESTING.md` for configuration.

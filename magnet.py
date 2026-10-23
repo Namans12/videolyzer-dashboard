@@ -12,6 +12,7 @@ keeps booting even when the binding is missing on this machine.
 from __future__ import annotations
 
 import contextlib
+import errno
 import logging
 import os
 import re
@@ -103,6 +104,14 @@ _DHT_ROUTERS = [
 
 class MagnetUnavailable(RuntimeError):
     """Raised when libtorrent isn't installed."""
+
+
+class MagnetMetadataTimeout(TimeoutError):
+    """Metadata discovery expired, including when re-fetching a selected file."""
+
+    def __init__(self, seconds: float):
+        self.seconds = seconds
+        super().__init__(f"No metadata received within {seconds:g}s")
 
 
 class NoFreePort(RuntimeError):
@@ -400,7 +409,7 @@ def _check_temp_disk_space(workdir: str, min_free_gb: float = 5.0) -> None:
         return  # can't check — let the job try and report any real failure
     free_gb = usage.free / 1024**3
     if free_gb < min_free_gb:
-        raise OSError(
+        raise OSError(errno.ENOSPC,
             f"Not enough free space on temp drive ({free_gb:.1f} GB free; "
             f"need at least {min_free_gb:.0f} GB). Free up space in "
             f"{os.path.dirname(workdir)} and retry."
@@ -461,44 +470,44 @@ def fetch_magnet_metadata(
 
         try:
             params = lt.parse_magnet_uri(magnet_uri)
-            params.save_path = workdir
-            if not use_default_scorer or metadata_only:
-                # Fetch metadata while forbidding payload pieces. Explicit priorities below
-                # are the only pieces a unified Quick run may request.
-                params.flags |= lt.torrent_flags.upload_mode
-            # storage_mode_sparse: tell libtorrent to create files only as
-            # pieces arrive, not pre-allocate. On Linux this is enough; on
-            # Windows we additionally mark each file FILE_ATTRIBUTE_SPARSE_FILE
-            # below — see the `if os.name == "nt"` block after prioritize_files.
-            try:
-                params.storage_mode = lt.storage_mode_t.storage_mode_sparse  # type: ignore[attr-defined]
-            except AttributeError:
-                pass   # older libtorrent versions — sparse is already default
-            handle = session.add_torrent(params)
-            # Fix 1: do NOT set upload_limit to 1 byte/sec — that triggers
-            # tit-for-tat choking and peers stop sending us data entirely.
-            # We remove the torrent within minutes so brief uploads are fine.
-        except Exception as exc:
-            raise ValueError(f"Invalid magnet URI: {exc}") from exc
+        except (ValueError, RuntimeError) as exc:
+            raise ValueError("Invalid magnet URI") from exc
+        params.save_path = workdir
+        if not use_default_scorer or metadata_only:
+            # Public ut_metadata works in upload_mode (real loopback regression).
+            # Keep payload forbidden until the explicit probe priorities are ready.
+            params.flags |= lt.torrent_flags.upload_mode
+        # Sparse is already the default on older libtorrent versions.
+        try:
+            params.storage_mode = lt.storage_mode_t.storage_mode_sparse  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        # Session/storage/runtime failures must retain their identity, rather than
+        # being mislabeled as malformed links by the parse exception handler.
+        handle = session.add_torrent(params)
 
         # Fix 2: alert-based metadata detection (100ms polling instead of 500ms).
         emit("Fetching torrent metadata via DHT/peers…")
-        deadline = time.time() + METADATA_TIMEOUT_S
+        deadline = time.monotonic() + METADATA_TIMEOUT_S
         while True:
             if cancel_check():
                 raise RuntimeError("Cancelled")
             # Drain the alert queue — fires metadata_received_alert as soon as ready.
             for alert in session.pop_alerts():
-                if type(alert).__name__ == "metadata_received_alert":
-                    break
+                # Fatal native/storage errors used to be drained and discarded,
+                # eventually presenting as a misleading no-peers timeout.
+                name = type(alert).__name__
+                if getattr(alert, 'handle', None) == handle:
+                    if name == 'file_error_alert':
+                        raise OSError(alert.error.value(), alert.error.message())
+                    if name == 'torrent_error_alert':
+                        raise RuntimeError(alert.message())
+            # Status is authoritative even if the received alert was coalesced
+            # or another consumer already drained it. Do not break mid-batch.
             if handle.status().has_metadata:
                 break
-            if time.time() > deadline:
-                raise TimeoutError(
-                    f"No metadata received within {METADATA_TIMEOUT_S}s. "
-                    "The torrent may have no live peers — check that your "
-                    "firewall allows UDP on port 6881."
-                )
+            if time.monotonic() > deadline:
+                raise MagnetMetadataTimeout(METADATA_TIMEOUT_S)
             time.sleep(0.1)
 
         torrent_info = handle.torrent_file()

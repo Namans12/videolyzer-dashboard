@@ -63,6 +63,41 @@ end-to-end recipes below. The frontend has Vitest tests (see "Frontend tests").
 
 ## Frontend tests
 
+### Public ut_metadata loopback proof (MagnetFix)
+
+This is a separate, opt-in proof of the production public-magnet metadata path.
+With all scratch/offline overrides above set to a fresh owned folder under C:
+(including TEMP/TMP and a non-existing `VIDEOLYZER_DATA_ROOT`), run:
+
+```powershell
+$env:PLAN4B_PUBLIC_LOOPBACK_PYTHON = 'C:\Users\naman\AppData\Local\Programs\Python\Python310\python.exe'
+$env:VIDEOSUITE_ROOT = 'D:\Video Comparizer'
+& 'D:\Videolyzer\videolyzer-dashboard\.venv\Scripts\python.exe' -m pytest tests/test_magnet_public_loopback.py -q -s --basetemp "$env:TEMP\public-loopback-pytest"
+```
+
+The existing system Python has libtorrent 2.0.11; no install/download is needed.
+FFmpeg generates a tiny MKV, padded with harmless bytes so only its selected head
+pieces are requested. Only the sample-size policy and probe bounds are reduced.
+Both sessions bind/use loopback, block every other IP and disable DHT/bootstrap,
+LSD, UPnP, NAT-PMP and uTP. The non-private torrent has no trackers/web seeds.
+The unmodified real magnet parser receives `xt=urn:btih:...&x.pe=127.0.0.1:<port>`;
+no torrent_info/metadata injection or manual connect_peer supplies discovery.
+The actual metadata-only function must receive ut_metadata with zero payload;
+the threaded selected-file path must retain seed-identical bounded bytes and
+produce actual CLI partial facts and Just Player device Quick. Every torrent
+session is paused/removed before helper exit and workdir deletion is asserted.
+Normal pytest skips this test unless the variable is set. No installed runtime,
+owner media or public peers are used. The previous private proof below remains
+useful for storage/selection but did not exercise ut_metadata.
+
+On libtorrent 2.0.11 this test passes with production `upload_mode` unchanged,
+metadata arriving in well under the unchanged 90-second budget. Therefore it
+does not support removing the flag or increasing that budget as an incident fix.
+Real DHT/router discovery and the owner's network remain outside this offline proof.
+Fake regressions cover per-link timeout/invalid/runtime/disk/access/busy/unexpected
+failure mappings in both stages, cancellation, unavailable support, log redaction,
+and immediate propagation of fatal native metadata/storage alerts.
+
 ### Private loopback libtorrent proof (Plan 4B final wave)
 
 The Dashboard Python 3.11 venv has no libtorrent. Opt in with
