@@ -18,7 +18,7 @@ drive it (CSRF, DNS rebinding). Rules, evaluated in this order (all matching is
    no-cors GET, navigations from other pages): only ``same-origin`` and ``none``
    are allowed                                                  -> 403
 4. Neither header (curl, the suite, tests)                      -> allowed
-5. ``POST`` to ``/magnet/``, ``/compare-magnets/`` or anything under ``/suite/``
+5. ``POST`` to ``/magnet/``, ``/compare-magnets/`` or under ``/suite/`` or ``/comparison/``
    must be ``application/json`` (parameters ignored)            -> 415
    The no-body cancel routes are exempt (the UI sends no Content-Type).
 
@@ -38,7 +38,7 @@ ORIGIN_RE = re.compile(r"https?://" + _LOOPBACK + r"(:\d+)?", re.IGNORECASE)
 SAFE_FETCH_SITES = {"same-origin", "none"}
 
 JSON_ONLY_EXACT_PATHS = {"/magnet/", "/compare-magnets/"}
-JSON_ONLY_PREFIXES = ("/suite/",)
+JSON_ONLY_PREFIXES = ("/suite/", "/comparison/")
 
 
 def _requires_json(method: str, path: str) -> bool:

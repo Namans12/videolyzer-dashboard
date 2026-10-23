@@ -14,7 +14,8 @@ Every invocation needs a fresh owned scratch child and explicit overrides:
 `VIDEOLYZER_DATA_ROOT`, `TORCH_HOME`, `HF_HOME`, `CLIP_CACHE_DIR`;
 set `PIP_NO_INDEX=1`, `PIP_DISABLE_PIP_VERSION_CHECK=1`, `HF_HUB_OFFLINE=1`,
 `TRANSFORMERS_OFFLINE=1`, `PYTHONDONTWRITEBYTECODE=1`, and
-`VIDEOLYZER_SUITE_STARTUP_CHECK=0` for unit tests. Never use real owner settings,
+`VIDEOLYZER_SUITE_STARTUP_CHECK=0` for unit tests. For pytest the scratch `VIDEOLYZER_DATA_ROOT` must not exist yet (a smoke test asserts import creates nothing); for `npm test` (AppControls) it must exist. A missing
+`VIDEOSUITE_SETTINGS` lets the owner's real settings leak into fixture pins. Never use real owner settings, Never use real owner settings,
 calibration, reports, model caches or movies, including E: movie folders.
 Comparizer commands always use
 `C:\Users\naman\AppData\Local\Programs\Python\Python310\python.exe`;
@@ -62,18 +63,57 @@ end-to-end recipes below. The frontend has Vitest tests (see "Frontend tests").
 
 ## Frontend tests
 
+### Private loopback libtorrent proof (Plan 4B final wave)
+
+The Dashboard Python 3.11 venv has no libtorrent. Opt in with
+`PLAN4B_LOOPBACK_PYTHON` naming an existing interpreter with the binding, such as
+the system Python 3.10 with libtorrent 2.0.11; this installs nothing. From the
+Dashboard checkout, after setting all scratch/offline overrides listed above:
+
+```powershell
+$env:PLAN4B_LOOPBACK_PYTHON = 'C:\Users\naman\AppData\Local\Programs\Python\Python310\python.exe'
+& 'D:\Videolyzer\videolyzer-dashboard\.venv\Scripts\python.exe' -m pytest tests/test_private_loopback_swarm.py -q -s
+```
+
+The test starts an isolated helper with generated tiny MKV/MP4 files in a private
+multi-video torrent. Seeder/downloader bind and connect only to `127.0.0.1`, with
+an IP filter blocking every other address, DHT/bootstrap/LSD/UPnP/NAT-PMP/uTP off,
+and no trackers or web seeds. Private torrents do not advertise ut_metadata, so
+the helper supplies its generated metadata at the parse seam. It also admits
+tiny clips past the 50 MiB sample guard and shrinks probe bounds to 64/32 KiB;
+sizes, offsets, storage, pieces and transfer remain real. No public torrent
+network, downloads, owner media or installed app are involved.
+
+The actual threaded downloader and partial_facts path must retain seed-identical
+head/tail bytes, request only selected probe pieces, leave all other files at zero
+priority, emit real facts and Quick documents with Just Player primary and optional
+alternatives, preserve facts on suite-budget exhaustion, and clean session/workdirs
+on success, cancellation and piece timeout. It uses the real CLI through
+`VIDEOSUITE_ROOT`/the selected existing interpreter. The helper pauses/removes all
+sessions before exit. Normal pytest skips this proof unless explicitly opted in;
+a skip is never integration evidence. Native dialog exit is separately tested in
+a short-lived subprocess with a blocked fake dialog; installed native UI and EXE
+QA remain separate.
+
+Final backend regressions also cover JSON-only comparison POSTs, shared magnet
+port leases on success/failure, cancel-before-replan reconnect, independent Overall
+answers after device-settings changes, installed build provenance and bounded
+marked-only orphan cleanup with a real NTFS junction refusal.
+
 Run `npm test` for the frontend suite, or `npm run test:watch` during development. Vitest uses jsdom and Testing Library for `src/**/*.test.{ts,tsx}`, through the same Vite/React Compiler plugins as the production build. Exact dev-tool versions are pinned in `package.json`; the installed jsdom requires Node 22.22.2 or a compatible newer supported version.
 
 The Plan 4A documentation verification run has **422 tests in 30 files**. Calibration
 coverage under `src/suite/calibration/` includes document guards, exact requests,
 store-backed answers, stale preview invalidation, kit planning/build polling, the
 checklist and guided card, session confirmation and input limits, individual veto
-confirmation, apply/undo and playback reports. App tests cover three-tab keyboard
-navigation, lazy mounting with hidden-panel retention, stored-tab restoration,
+confirmation, apply/undo and playback reports. App tests cover (since Plan 4B) the
+four main tabs and the Advanced sub-tabs with keyboard navigation, lazy mounting with hidden-panel retention, stored-tab restoration,
 the calibration capability gate on older suites and independent error boundaries.
 Fetch-gated tests cover terminal polling and request guards; jsdom does not establish
 real-browser layout, focus traversal or live installed-suite behavior. Those require
 the separate real-browser QA pass.
+
+Plan 4B adds `src/compare/` and `src/devices/` tests: the fixed TV/laptop/tablet order without management controls, default choices without hidden prior state, inline candidate validation, Full disabled for magnets, explicit magnet file choice, stale-plan refusal and a single confirmation on double click, reconnect of a real Just Player run with its alternatives, public-snapshot guards that refuse a leaked `reports_dir`, Quick labels without measured scores, requested panels only, coverage that blocks a whole-set winner, evidence words on every verdict, sandboxed reports and the Compare-first tabs with legacy tools under Advanced. They consume the real HTTP envelopes in `tests/fixtures/comparison` (emitted by the actual routes and workers; regenerate with `PLAN4B_REGEN_FIXTURES=1`) only through `src/compare/testing/fixtures.ts`, and the real suite documents in `tests/fixtures/suite4b`: never fabricated near-matches. A test that needs a state the emitters do not produce (a running job, a Full Device-only answer, an HTML report) derives it from a real envelope and says so.
 
 Tests import real suite fixtures from `tests/fixtures/suite/` only through `src/suite/testing/fixtures.ts`, which returns fresh clones. Never edit those JSON fixtures by hand. Fetch is always mocked through `src/suite/testing/fetchMock.ts`; an unexpected request fails the test even when application code catches it. Polling tests use fake timers, with timer advances wrapped in React `act`; scheduled handoffs settle through separate render/effect flushes. `src/security.test.ts` scans frontend sources for HTML injection, evaluated code and non-loopback URLs.
 

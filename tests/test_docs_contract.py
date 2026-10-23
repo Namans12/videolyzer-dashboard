@@ -195,8 +195,8 @@ def test_readme_documents_the_suite_tab_and_frontend_tests():
 def test_calibration_workflow_gate_and_limits_are_documented():
     section = README.split("## Calibration (TV)", 1)[1].split("\n## ", 1)[0]
     for phrase in (
-        "third tab", "calibration` capability", "update VideoSuite to 0.5.0",
-        "Suite tab keeps working", "Prepare kit", "Confirm conditions",
+        "second tab", "calibration` capability", "update VideoSuite to 0.5.0",
+        "Suite view under Advanced keeps working", "Prepare kit", "Confirm conditions",
         "checklist table", "guided card", "Preview changes", "Apply", "Undo this kit",
         "What changed", "playback only", "500 characters", "100 characters", "single-line",
         "link or junction", "`&` or `%`", "before its first session",
@@ -224,3 +224,75 @@ def test_calibration_modules_storage_and_test_coverage_are_documented():
         assert phrase in integration, phrase
     for phrase in ("422 tests in 30 files", "checklist", "guided", "stale", "capability"):
         assert phrase in testing, phrase
+
+
+SIX_MODES = ("Quick + Overall", "Quick + Device", "Quick + Both", "Full + Overall", "Full + Device", "Full + Both")
+FIXED_DEVICES = (("sony_bravia_8_ii", "Sony Bravia 8 II (TV)"), ("vivobook_pro_16x", "ASUS Vivobook Pro 16X (laptop)"),
+                 ("galaxy_tab_s9_ultra", "Galaxy Tab S9 Ultra (tablet)"))
+ONE_TITLE = ("Add versions of one movie/title only. If you mixed titles or episodes, remove them and start a "
+             "separate run for each title.")
+
+
+def _section(text: str, heading: str) -> str:
+    assert heading in text, heading
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_docs_pin_six_modes_and_fixed_device_scope():
+    raw = _section(README, "## Compare (home screen)")
+    section = " ".join(raw.split())
+    rows = [line for line in raw.splitlines() if line.startswith("| ") and " + " in line.split("|")[1]]
+    assert [row.split("|")[1].strip() for row in rows] == list(SIX_MODES)
+    for text in ("Compare, Calibration (TV), Devices info, Advanced", "Metadata estimate — picture not measured",
+                 "Best playback estimate for [device/player] — picture not measured", "accurate",
+                 "every unordered pair", "no playback shortlist", "no whole-set winner", ONE_TITLE,
+                 "Download the files first, then choose Downloaded files.", "Check files and estimate",
+                 "You can close this tab. Reopen the shortcut to return. Use Quit to stop the app.",
+                 "Best overall", "Best for my device", "Quick (metadata)", "Full (picture comparison)",
+                 "owner = tested by Naman", "settings_changed", "not resumed halfway through a pair",
+                 "/app/choose-files", '<iframe sandbox="">', "?download=1", "Devices info", "read-only",
+                 "Analyze", "Suite (all devices)", "fast shortlist", "no runtime downloads", "active_tab"):
+        assert text in section, text
+    positions = [section.index(device_id) for device_id, _ in FIXED_DEVICES]
+    assert positions == sorted(positions)
+    for _, label in FIXED_DEVICES:
+        assert label in section, label
+    assert "no add, remove, restore or reorder" in section
+    lowered = section.lower()
+    for claim in ("add a device", "add a new device", "remove a device", "manage your devices", "device manager"):
+        assert claim not in lowered, claim
+    assert "Magnet runs answer 501" not in README           # magnets landed in U6
+    architecture = (ROOT / "docs" / "ARCHITECTURE.md").read_text(encoding="utf-8")
+    for module in ("CompareScreen.tsx", "InputPanel.tsx", "RunOptions.tsx", "useComparison.ts", "ComparisonResult.tsx",
+                   "FactsTable.tsx", "ReportPanel.tsx", "supported-devices.json", "DevicesInfo.tsx"):
+        assert f"`{module}`" in architecture, module
+    assert "src/compare/" in architecture and "src/devices/" in architecture
+    integration = (ROOT / "docs" / "SUITE_INTEGRATION.md").read_text(encoding="utf-8")
+    unified = " ".join(_section(integration, "## Unified comparison runs (Plan 4B)").split())
+    for text in ("/comparison/plans", "/comparison/runs", "videosuite-comparison-run/1", "videosuite-quick/1",
+                 "--primary-player", "reports_dir", "settings.path", "build_id"):
+        assert text in unified, text
+    testing = " ".join((ROOT / "docs" / "TESTING.md").read_text(encoding="utf-8").split())
+    for text in ("src/compare/testing/fixtures.ts", "tests/fixtures/comparison", "PLAN4B_REGEN_FIXTURES=1",
+                 "never fabricated near-matches"):
+        assert text in testing, text
+
+
+def test_unified_capability_gate_and_real_fixture_check_are_documented():
+    section = README.split("## Unified comparison contracts (Plan 4B)", 1)[1].split("\n## ", 1)[0]
+    for text in ("VideoSuite 0.7.0", "compare_all", "compare_plan", "neutral_only", "record_snapshot",
+                 "quick_recommendations", "Advanced and Calibration keep working",
+                 "scripts/make_suite_fixtures.py --plan4b --check", "tests/fixtures/suite4b",
+                 "two independent generations", "semantic mutation", "--primary-player", "--player all",
+                 "videosuite-record-snapshot/1", "1225 pairs", "never an ETA", "reports_dir"):
+        assert text in section, text
+
+
+def test_final_backend_retention_swarm_and_independent_overall_are_documented():
+    testing = (ROOT / 'docs' / 'TESTING.md').read_text(encoding='utf-8')
+    integration = (ROOT / 'docs' / 'SUITE_INTEGRATION.md').read_text(encoding='utf-8')
+    for text in ('PLAN4B_LOOPBACK_PYTHON', 'test_private_loopback_swarm.py', '127.0.0.1', 'private'):
+        assert text in testing
+    for text in ('30 days', '100', '.videosuite-run.json', 'release.json', 'Overall answer'):
+        assert text in README, text
+    assert 'settings.path' in integration and 'cancel' in integration

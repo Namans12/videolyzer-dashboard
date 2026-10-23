@@ -156,6 +156,7 @@ A full-stack video analysis app that compares local movie files using MediaInfo,
 - Provides per-file USB compatibility hints for Bravia 8 Mark II.
 - Supports background jobs with progress streaming (SSE) for long-running scans.
 - Runs the installed VideoSuite (device playback scoring, quality ranking, pixel comparison) through the `/suite/...` endpoints (see `docs/SUITE_INTEGRATION.md`).
+- Compare (the home screen) runs one-title comparisons of downloaded files or magnet links as backend-owned runs (`/comparison/...`), with Quick metadata estimates or Full accurate picture comparisons, for Best overall, Best for my device or Both.
 
 ## Legacy scoring (frozen)
 
@@ -170,13 +171,13 @@ magnet analysis and the `/suite/...` routes, described in `docs/SUITE_INTEGRATIO
 - Frontend: React 19 + TypeScript + Vite
 - Backend: FastAPI (Python)
 - Metadata/tooling: MediaInfo, ffprobe/ffmpeg, dovi_tool
-- Optional: the installed VideoSuite (`python -m videosuite`), called as a subprocess, never imported
+- Optional: the installed VideoSuite (`python -B -m videosuite`), called as a subprocess, never imported
 
 ## Project Structure
 
 ```text
 videolyzer-dashboard/
-  src/                 # React UI
+  src/                 # React UI (src/compare: Compare home screen; src/devices: read-only Devices info)
   scripts/             # Helper scripts for polling/SSE testing
   uploads/             # Temporary upload storage (auto-used by backend)
   docs/                # ARCHITECTURE.md, TESTING.md, SUITE_INTEGRATION.md
@@ -190,6 +191,7 @@ videolyzer-dashboard/
   suite_routes.py      # /suite/version, /suite/devices, /suite/settings, /suite/score, /suite/rank, /suite/compare
   calibration_routes.py # /suite/calibration/plan, status, session, record, build, apply, undo, report
   suite_version.py     # Version handshake, capability gates and cached startup check
+  comparison_contracts.py # Plan 4B request/run-snapshot/run-result contracts and capability checks
   magnet_suite.py      # Bounded, nonfatal scoring of retained partial magnet files
   proc_guard.py        # Windows kill-on-close Job Object for suite children
   magnet.py            # libtorrent head/tail download, torrent session settings, port pool
@@ -357,6 +359,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-local.ps1 -BindHost 127
 
 ## How To Use
 
+The app opens on **Compare** (see Compare (home screen) below). The steps here describe the legacy **Analyze** view under **Advanced**:
+
 1. Drag and drop video files, browse for files, paste a server-local file/folder path, or paste a magnet link.
 2. Toggle Fast mode if you want quicker scans (skips deep RPU scan path).
 3. Click Analyze (or Analyze Magnet).
@@ -401,9 +405,36 @@ The backend never downloads a large file in full and never seeds on purpose: the
   assert set(session_settings(6881)) <= set(lt.default_settings())
   ```
 
+## Compare (home screen)
+
+The tabs are, in order: Compare, Calibration (TV), Devices info, Advanced. **Compare** is the home screen of a fresh browser; the older screens live under **Advanced** as its own tabs **Analyze** and **Suite (all devices)**. A browser that had the old `active_tab` value `analyze` or `suite` stored opens that view under Advanced. Arrow keys, Home and End move between tabs; every screen mounts on first use and stays mounted while hidden, so typed inputs, running work and Calibration answers survive navigation.
+
+The flow is: choose **Downloaded files** or **Magnet links**, add the versions, choose the results (**Best overall**, **Best for my device** or **Both**), choose the depth (**Quick (metadata)** or **Full (picture comparison)**), press **Check files and estimate**, read the plan, then press **Start**. A fresh screen starts at Both, the TV with its default player, Full for files and Quick for magnets; no earlier choice is carried over, and a finished run keeps showing the choices it was made with.
+
+Add versions of one movie/title only. If you mixed titles or episodes, remove them and start a separate run for each title.
+
+The app adds no title detection, episode matching or grouping. Files: 2–50 distinct video files. **Choose files…** calls `/app/choose-files` (the Windows dialog; nothing is uploaded or copied); pasting full paths works too. Repeated paths and duplicate file names are refused inline before any work. Magnets: 2–8 links; checking them fetches limited pieces of each movie and may exchange data with other peers. A link with several videos returns its file list and you pick one file per link; nothing is picked for you. Full stays disabled for magnets: "Download the files first, then choose Downloaded files."
+
+| Mode | Work performed | Work skipped and the answer shown |
+| --- | --- | --- |
+| Quick + Overall | facts (partial facts for magnets) and the suite's `quick` metadata order | device rules, fusion, deep Dolby Vision, pixels; "Metadata estimate — picture not measured" |
+| Quick + Device | facts and `quick` with the chosen device, primary player and evaluated players | pixels and measured fusion; "Best playback estimate for [device/player] — picture not measured", the chosen player first and the others labelled as alternatives |
+| Quick + Both | one facts pass, both estimates | the same; both labels, shown separately |
+| Full + Overall | plan, the accurate all-candidates compare, the neutral rank | device profiles, settings and fusion; the measured neutral order |
+| Full + Device | the same pixel pass and the device rank | unrelated devices and the separate Best overall panel |
+| Full + Both | one pixel pass, the neutral rank and the device rank | pixels are never repeated; both orders, shown separately |
+
+Full always means accurate pixels on every readable submitted version and every unordered pair: no playback shortlist and no same-size/duration deduplication. The plan shows VideoSuite's own pair count and rough estimate before anything expensive starts; the app invents no percentage or finishing time. For a large set, remove versions and check again, or choose Quick; nothing is trimmed automatically. The limited fast shortlist stays only under Advanced. A plan whose inputs were edited afterwards cannot be started; check again. One click starts a confirmed plan exactly once. While a run works the screen says: "You can close this tab. Reopen the shortcut to return. Use Quit to stop the app." Reopening lists the server's runs and reconnects; no run, token or choice is kept in browser storage.
+
+Results put the answer first. Quick never shows a measured quality column. Unreadable versions, failed pairs or failed links make coverage incomplete, every version stays listed, and there is no whole-set winner. Full results keep same-picture groups, head-to-head conflicts, stale and older (legacy) reports, missing pairs, the device quality basis, removed format credit and score ranges. Every verdict and best-player line carries its evidence word (official / owner / reviewed / forum / inferred / unknown; owner = tested by Naman); a missing word shows as unknown with the unverified notice. A side-by-side facts table shows what was read (partial reads are marked). The nested suite `settings.path` and other backend folders are never shown. Reports open inside the app: JSON/text/log as plain text after their checksum is compared, HTML only in `<iframe sandbox="">` (no scripts, no same-origin), and **Export** uses the relative `?download=1` link.
+
+Device/Both freeze the exact settings and device rule versions. If they change before ranking or publication (for example after a Calibration apply or undo), the run ends `settings_changed`; only the device answer is withheld. Both still returns the independent Overall answer from the frozen facts and finished picture comparisons. Coverage remains complete when all submitted evidence is complete; unreadable files, missing pairs and cancellation still prevent a whole-set winner. The verified pair reports stay viewable and a new run uses the new device rules. Earlier results keep their original basis. A stopped run is not resumed halfway through a pair; a new run recomputes its pairs.
+
+Supported devices are fixed, in this order: `sony_bravia_8_ii` Sony Bravia 8 II (TV), `vivobook_pro_16x` ASUS Vivobook Pro 16X (laptop), `galaxy_tab_s9_ultra` Galaxy Tab S9 Ultra (tablet). The ids and order are release data (`src/compare/supported-devices.json`); players, labels and rules come from `/suite/devices`, and any other profile is not offered. There are no add, remove, restore or reorder controls and no personal device list. **Devices info** is read-only: each device's profile label, rules version, players (default marked) and rule counts per evidence word, plus the evidence legend. The packaged app has no runtime downloads.
+
 ## Suite tab
 
-Open **Suite (all devices)** next to **Analyze** for device playback checks and picture comparison. The core Suite routes require VideoSuite 0.3.0 or later; install 0.4.0 for owner settings, partial-file scoring and current progress features. The banner explains readiness; use **Check again** after installing or changing settings.
+**Suite (all devices)** sits under **Advanced**, next to **Analyze**, for device playback checks and picture comparison. The core Suite routes require VideoSuite 0.3.0 or later; install 0.4.0 for owner settings, partial-file scoring and current progress features. The banner explains readiness; use **Check again** after installing or changing settings.
 
 Type or paste one full local video path per line, 1 to 50 files. Explorer **Copy as path** quotes are accepted. A list with any invalid line is not sent, including its valid subset. Choose a device/player, USB file system (**Owner settings (per device)** by default), and audio/subtitle language.
 
@@ -417,7 +448,7 @@ Owner settings are read-only (`/suite/settings`). The latest completed run's set
 
 ## Calibration (TV)
 
-The third tab, **Calibration (TV)**, checks playback on your Sony Bravia 8 II. It requires the `calibration` capability from VideoSuite 0.5.0. With an installed 0.3/0.4 suite it says "Please update VideoSuite to 0.5.0 to use calibration." The Suite tab keeps working; the Calibration tab sends no calibration requests until the capability is available.
+The second tab, **Calibration (TV)**, checks playback on your Sony Bravia 8 II. It requires the `calibration` capability from VideoSuite 0.5.0. With an installed 0.3/0.4 suite it says "Please update VideoSuite to 0.5.0 to use calibration." The Suite view under Advanced keeps working; the Calibration tab sends no calibration requests until the capability is available. After an apply or undo, new Compare runs use the updated device rules; earlier results keep the rules they were made with.
 
 1. **Plan kit** previews tests and the estimated total size; **Prepare kit** is enabled after a plan for the current paths and scan options is shown, and builds the test files and `kit.json`. Paste up to 50 source video paths, or leave them empty for tests that need no source. Use a separate local output folder without `&` or `%`. Build and session refuse an output folder that is, or lies inside, a link or junction; VideoSuite also checks separation from source/repository folders and refuses to replace existing kit files. A deep Dolby Vision scan verifies FEL/MEL for that run.
 2. **Confirm conditions** after checking the TV software, audio output and USB file system. Audio/USB values come from owner settings; change them there and use **Check settings again**. The TV-software input is single-line and limited to 100 characters. Answers keep their recorded conditions; older TV software needs fresh answers, and unknown or different required conditions cannot become applied evidence.
@@ -520,7 +551,7 @@ The backend is a local tool: it binds to loopback (`--host 127.0.0.1`), has no l
 
 The **remote-drive rule**: a path typed with a mapped network drive letter (`Z:\videos\a.mkv`, drive type "remote") is refused with 400 `network drives are not allowed` unless `VIDEOLYZER_ALLOW_REMOTE_DRIVES` is exactly `1`. Windows resolves such a path to a UNC path (`\\server\share\...`), so the guard looks at the drive letter you TYPED: a resolved UNC path is accepted only when that letter is a network drive, the variable is `1` and the result is not a device path. A path you type as UNC (`\\host\share`, `//host/share`, `\\?\UNC\...`) and a `\\.\` device path are refused always, whatever the variable says, and so is a junction or symlink on a local drive that points at a share. This rule has been tested with a faked drive type and a faked resolver only, not against a real mapped drive: if a real mapped drive is still refused with the variable set, keep the variable unset and use a local copy.
 
-Subprocesses never see a shell: the suite client starts `python -m videosuite` with an argument list (never a `.bat`), passes file paths in a UTF-8 list file, and rejects shell metacharacters in the two folder values.
+Subprocesses never see a shell: the suite client starts `python -B -m videosuite` with an argument list (never a `.bat`), passes file paths in a UTF-8 list file, and rejects shell metacharacters in the two folder values. Its explicit `PYTHONDONTWRITEBYTECODE=1` environment override survives inherited `PYTHON*` stripping, keeping the sealed release free of bytecode.
 
 Residual risk (stated, not hidden):
 
@@ -583,6 +614,76 @@ The 0.3.0 fallback reports capabilities `["devices"]`, so magnet files show
 `The installed VideoSuite cannot score partial downloads (needs 0.4.0 or later); reinstall the Comparizer.`
 
 The opt-in live test (`tests/test_live_suite.py`) uses `VIDEOLYZER_LIVE_SUITE=1` (read by the test, not by the app) and redirects the suite's record cache into a temporary folder with `VC_CACHE_DIR` and points the suite's settings file at a temporary path with `VIDEOSUITE_SETTINGS` (so your own `settings.json` never changes a test); see `docs/TESTING.md`.
+
+## Unified comparison contracts (Plan 4B)
+
+The one-screen comparison flow needs VideoSuite 0.7.0 with the capabilities `compare_all`, `compare_plan`, `neutral_only`, `record_snapshot` and `quick_recommendations`. The Dashboard checks the capabilities from the version handshake (`suite_version.require_unified`), never only the folder: a suite without them gets a compatible-update message ("Install VideoSuite 0.7.0 or later ...") and Advanced and Calibration keep working with the installed suite (their minimum stays 0.3.0 / the `calibration` capability).
+
+`suite_client.py` adds `plan_compare` (`compare --all-candidates --plan`: facts, candidates, every unordered pair and the suite's own estimate; it never creates the output folder), `quick` (metadata recommendations, `videosuite-quick/1`, never pixels), `facts_partial` (one partial download, no device arguments, no deep Dolby Vision scan, no cache) and additive keywords on `compare`/`rank` (`all_candidates`, `results`, `records`, `audio_output`, `primary_player`). Old callers get exactly the old argv. Media paths still travel only in the private UTF-8 list file; a `videosuite-record-snapshot/1` record snapshot travels as a private JSON file (`--records`), never as argv text, and both are removed on every exit. `primary_player` is the owner's chosen player and emits `--primary-player` only when supplied; `player` stays the evaluation selector, so the TV Just Player run with alternatives is `--device sony_bravia_8_ii --primary-player just_player --player all`. Overall passes no device, player or primary player. The all-candidates compare timeout counts every unordered pair (50 files = 1225 pairs, at least 6 hours); it is a safety ceiling, never an ETA, and `VIDEOSUITE_COMPARE_TIMEOUT_S` still overrides it.
+
+`comparison_contracts.py` holds the strict request/snapshot/result contracts: `validate_run_request`, `validate_internal_snapshot` (requires the absolute run-owned `reports_dir`), `validate_public_snapshot` and `to_public_snapshot` (the HTTP/frontend shape omits `reports_dir` entirely), `validate_run_result` (`videosuite-comparison-run/1`; nested suite documents are the real documents) and `require_capabilities`. Error messages name the field, never the submitted value.
+
+Real fixtures: `tests/fixtures/suite4b` holds documents emitted by the actual VideoSuite 0.7.0 CLI under the shared deterministic harness (virtual inputs, fixed facts, fixed pair outcomes and clock; only transient scratch/report-root prefixes become `<SCRATCH>`). The legacy `tests/fixtures/suite` files stay the 0.4.0 backwards-compatibility fixtures. Regenerate or check them with the Comparizer checkout and its test interpreter:
+
+```powershell
+$env:VIDEOSUITE_ROOT = 'D:\Video Comparizer'
+$env:VIDEOSUITE_PYTHON = 'C:\Users\naman\AppData\Local\Programs\Python\Python310\python.exe'
+.\.venv\Scripts\python.exe scripts/make_suite_fixtures.py --plan4b --check
+```
+
+### Unified runs (backend-owned)
+
+The backend owns every unified run; the browser only starts, confirms and reads it, so closing the tab or losing the connection never stops the chain.
+
+| Route | Meaning |
+| --- | --- |
+| `POST /comparison/plans` | A `RunRequest` (`input_kind`, `results` overall/device/both, `depth` quick/full, `paths`, `device`, `primary_player`, `player`, `include_alternatives`, `fs`, `lang`, `audio_output`; extra keys are refused with 422 and no echo). Returns `{job_id, run_id}`. The planning job computes the facts once (Quick: `facts`; Full: the read-only `compare --plan` with the suite's own estimate), freezes them in a private run-owned record snapshot, copies the exact effective settings bytes for Device/Both into a run-owned settings file, and leaves the run `awaiting_confirmation`. It holds one score/rank slot only while it works. Magnet runs are Quick only (see below). |
+| `POST /comparison/runs` | `{run_id, plan_revision}` confirms that immutable plan exactly once (409 for a stale revision, a second confirmation, a busy slot, a changed file or changed settings/device rules) and returns `{job_id, run_id}`. Full runs take ONE heavy comparison lease for the accurate all-candidates compare and the rank; Quick runs take one score/rank slot. |
+| `GET /comparison/runs` | `{runs: [...]}`: public run snapshots, newest first (active and recently finished; the last 20 finished runs are kept and older run folders are removed). |
+| `GET /comparison/runs/{run_id}` | `{run, result}`; `result` is the `videosuite-comparison-run/1` envelope (or `null` while pending). |
+| `POST /comparison/runs/{run_id}/cancel` | Body `{}`: cancels a pending plan; a running chain also stops through its job (`POST /job/{job_id}/cancel`). |
+
+Stages run only as requested: Quick Overall = facts + `quick`; Quick Device/Both = facts + `quick` with the chosen device's players (no pixels, no deep scan, no fusion); Full Overall = plan, accurate all-candidates compare, neutral rank (no profiles or settings); Full Device/Both = the same pixel pass plus the chosen device's rules (Both also keeps the neutral answer). Cancellation is checked at every stage boundary (a cancelled run never starts rank). Settings or device rule changes withhold the device answer with `settings_changed`, keeping Both's independent Overall answer and the verified pair reports. Tool, engine or facts-version changes cannot publish an old Overall answer. A failed pair keeps the useful partial tables, ends the job `failed_pairs` and marks coverage incomplete, so no whole-set winner is claimed. The owner's `primary_player` and the evaluation `player` are kept separately in the request, snapshot and conditions and are passed unchanged to every suite call. Every list/detail/job/result response carries the public snapshot only: the run-owned `reports_dir` never leaves the backend; reports appear as opaque ids and relative URLs. During a pending Quit, reads stay available and new plans/runs answer 503.
+
+Every `/comparison/` POST requires `Content-Type: application/json`, including cancel `{}`. Re-checking edited choices cancels that screen's previous pending plan before creating its replacement; other tabs' plans remain independent. The plan's `estimate.pairs` is the scheduled readable-pair count; coverage's `expected_pairs` is the total for the submitted set, which can be larger when a file is unreadable.
+
+Installed result provenance takes `build_id` from the launcher's verified `release.json` identity. Development runs without that identity emit null (shown as not recorded).
+
+Run history is in memory. Besides the 20-finished-run bound during a session, startup conservatively removes app-marked orphan folders older than **30 days** under its own data root's `runs/` directory. Each new run writes `.videosuite-run.json` with its identity and creation time. Cleanup examines at most 1000 direct children and deletes at most **100** per launch; it skips unmarked/invalid markers, active runs, any reparse point/junction or tree with over 10000 entries. Unmarked folders from older releases are left untouched; the owner can review them manually. No cleanup scans media folders or any other data root.
+
+`scripts/make_suite_fixtures.py --plan4b --check` writes nothing: it runs two independent generations in separate processes with fresh scratch roots, validates every document with the Dashboard parsers, recomputes record IDs and snapshot digests, requires both generations and the checked-in fixtures to match byte for byte as canonical JSON, and runs a semantic mutation (one file's HDR fact changed) that must be detected as drift. Any drift exits nonzero. Without `--check`, `--plan4b` rewrites the fixtures.
+
+### Magnets, file chooser and reports
+
+Unified Quick magnets accept two to eight links, with one explicitly selected video entry per link.
+Planning discovers file lists only; multiple entries return `selection_required` with candidate `entries`
+(`index`, `name`, `size`). Submit a new plan with each chosen `file_index`; plans are immutable.
+Confirmation fetches only the bounded head (32 MiB), plus tail (64 MiB) where needed, rounded to torrent pieces.
+The selected file remains writable; every other file and every non-probe piece has zero priority.
+File-priority completion and disk-cache flush are awaited before reading the retained bytes. Unified sessions
+lease their listen port from the same allocator as legacy magnet jobs and release it on every exit.
+Quick uses detached partial facts and one metadata recommendation across all candidates. It never uses legacy
+Bravia scoring, middle sampling, deep Dolby Vision scanning or measured picture scores. Unreadable candidates
+remain visible and prevent a whole-set winner. Device/Both preserve the selected primary and evaluated players.
+Full magnets are refused before torrent work. Legacy magnet routes retain their existing defaults.
+If the packaged OpenSSL prerequisites are absent: "Magnet links are unavailable on this PC (OpenSSL 1.1 files not found); file comparison still works".
+No public torrent peers are used in automated tests; real swarm QA uses only generated private loopback fixtures.
+
+`POST /app/choose-files {}` opens the Windows multi-file dialog on one serialized daemon native UI thread. It requires
+the per-launch token, exact Origin and JSON, and refuses concurrent dialogs. Cancel returns `paths: []` and
+`cancelled: true`. Choose 2–50 individual video versions of one movie/title; paste individual paths when the
+dialog is unavailable. Both inputs apply the original raw path/allowed-root guards and reject duplicate canonical
+paths (including case variants) and duplicate basenames without renaming. There is no folder chooser.
+The request awaits the daemon dialog directly, without a default-executor thread that would hold loop/interpreter
+shutdown. An open dialog does not keep the backend process alive after Quit.
+When Quit starts, its pending HTTP chooser request ends with 409 so server shutdown can finish.
+
+`GET /comparison/runs/{run_id}/reports/{report_id}?download=0|1` serves only registered pair outputs and their
+known text/HTML/log companions. Report IDs and relative URLs come from the RunResult; arbitrary paths, unknown
+query keys, changed hashes/identities, symlinks and junctions are refused. JSON/text/log are served as plain text.
+HTML carries a restrictive CSP sandbox with scripts, connections and same-origin privilege disabled. The in-app HTML
+viewer embeds the relative report URL in `<iframe sandbox="">` without `allow-same-origin` or `allow-scripts`.
+Use `download=1` for the original JSON/text/HTML/log bytes. No local-file links or generic report static folder.
 
 ## Helper Scripts
 

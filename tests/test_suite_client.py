@@ -25,8 +25,75 @@ def test_version_happy_path_and_argv():
     pop = FakePopen(ok("version.json"))
     doc = make_client(pop).version()
     assert doc["schema"] == "videosuite-version/1"
-    assert pop.argv == ["PY", "-m", "videosuite", "version", "--json"]
+    assert pop.argv == ["PY", "-B", "-m", "videosuite", "version", "--json"]
+
+
+def test_runtime_python_disables_bytecode_after_environment_stripping(tmp_path):
+    py = tmp_path / "python.exe"
+    py.write_bytes(b"fixture")
+    inherited = {"VIDEOSUITE_PYTHON": str(py), "VIDEOSUITE_ROOT": str(tmp_path),
+                 "PYTHONDONTWRITEBYTECODE": "0", "PYTHONHOME": "untrusted"}
+    prefix, overrides = resolve_suite(environ=inherited)
+    assert prefix == [str(py), "-B", "-m", "videosuite"]
+    assert overrides["PYTHONDONTWRITEBYTECODE"] == "1"
+    for explicit in (None, [str(py), "-m", "videosuite"]):
+        client = SuiteClient(argv_prefix=explicit, environ=inherited, popen=FakePopen(),
+                             env={"PYTHONDONTWRITEBYTECODE": "0"})
+        assert client.argv_prefix[:4] == [str(py), "-B", "-m", "videosuite"]
+        assert client._process_env()["PYTHONDONTWRITEBYTECODE"] == "1"
+        assert "PYTHONHOME" not in client._process_env()
     assert make_client(FakePopen())._timeout_devices() == suite_client.DEVICES_TIMEOUT_S
+
+
+def test_runtime_subprocess_inventory_never_lets_python_write_bytecode():
+    """Static scan of every runtime module: a new process-start site fails until it is
+    classified here. The sealed release is verified strictly, so each Python child must
+    run with ``-B`` (``-I`` ignores PYTHONDONTWRITEBYTECODE) or the explicit override."""
+    import ast
+    from collections import Counter
+    root = Path(suite_client.__file__).parent
+    starters = {"subprocess.Popen", "subprocess.run", "subprocess.call", "subprocess.check_call",
+                "subprocess.check_output", "asyncio.create_subprocess_exec", "asyncio.create_subprocess_shell",
+                "os.system", "os.startfile", "os.execv", "os.spawnv", "self._popen", "proc_guard.run_tool", "_run"}
+    sites, calls = Counter(), {}
+    for path in sorted(root.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and ast.unparse(node.func) in starters:
+                owner = node
+                while owner in parents and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    owner = parents[owner]
+                key = (path.name, getattr(owner, "name", "module"), ast.unparse(node.func))
+                sites[key] += 1
+                calls.setdefault(key, []).append(node)
+    assert sites == Counter({
+        ("suite_client.py", "_run", "self._popen"): 1,             # every suite command/helper: -B prefix
+        ("suite_client.py", "taskkill_tree", "subprocess.run"): 1,  # taskkill.exe
+        ("proc_guard.py", "run_tool", "subprocess.Popen"): 1,       # transport for the callers below
+        ("analysis.py", "run_command", "proc_guard.run_tool"): 1,   # ffmpeg/ffprobe/mediainfo/dovi_tool
+        ("magnet.py", "fetch_magnet_metadata", "proc_guard.run_tool"): 1,  # fsutil
+        ("app_preflight.py", "_run", "proc_guard.run_tool"): 1,     # transport for _probe and packaged tools
+        ("app_preflight.py", "_probe", "_run"): 1,                  # private Python: -I -B
+        ("app_preflight.py", "tool", "_run"): 1,                    # packaged ffmpeg/ffprobe/dovi_tool/mediainfo
+        ("app_preflight.py", "export_payload", "subprocess.check_output"): 3,  # git, build time only
+        ("app_routes.py", "open_log", "os.startfile"): 1,           # app log in the default .log viewer
+    })
+    probe, = calls[("app_preflight.py", "_probe", "_run")]
+    argv = [ast.unparse(v) for v in probe.args[0].elts]
+    assert argv[:4] == ["str(python)", "'-I'", "'-B'", "'-c'"]
+    tool, = calls[("app_preflight.py", "tool", "_run")]
+    assert ast.unparse(tool.args[0]) == "[str(path), *arguments]"
+    magnet, = calls[("magnet.py", "fetch_magnet_metadata", "proc_guard.run_tool")]
+    assert ast.unparse(magnet.args[0].elts[0]) == "'fsutil'"
+    # The one Python launch path that strips inherited PYTHON* variables re-adds the
+    # override and puts -B on every prefix, resolved or injected.
+    py = Path(suite_client.__file__)
+    env = {"VIDEOSUITE_PYTHON": sys.executable, "VIDEOSUITE_ROOT": str(py.parent), "PYTHONDONTWRITEBYTECODE": "0"}
+    for client in (SuiteClient(environ=env, popen=FakePopen()),
+                   SuiteClient(argv_prefix=[sys.executable, "-m", "videosuite"], environ=env, popen=FakePopen())):
+        assert client.argv_prefix[1] == "-B" and client.argv_prefix.count("-B") == 1
+        assert client._process_env()["PYTHONDONTWRITEBYTECODE"] == "1"
 
 
 @pytest.mark.parametrize("name,command", [("devices", "devices"), ("version", "version"),
@@ -183,6 +250,7 @@ class FakePopen:
         self.calls = []          # (argv, kwargs)
         self.list_text = None    # bytes of the --list file at call time
         self.list_dir = None
+        self.records_text = None
 
     def __call__(self, argv, **kwargs):
         self.calls.append((list(argv), kwargs))
@@ -190,6 +258,10 @@ class FakePopen:
             lf = argv[argv.index("--list") + 1] if "--list" in argv else None
             self.list_text = Path(lf).read_bytes()
             self.list_dir = Path(lf).parent
+        records = [a[len("--records="):] for a in argv if a.startswith("--records=")]
+        if records:                                    # the private snapshot transport file (Plan 4B)
+            self.records_text = Path(records[0]).read_bytes()
+            self.list_dir = Path(records[0]).parent
         return self.procs.pop(0)
 
     @property
@@ -211,7 +283,7 @@ def ok(name, **kw):
 def test_argv_prefix_wins_and_gets_utf8_env(tmp_path):
     c = SuiteClient(argv_prefix=["X:\\py.exe", "-m", "videosuite"], popen=FakePopen(),
                     environ={"PATH": "p"})
-    assert c.argv_prefix == ["X:\\py.exe", "-m", "videosuite"]
+    assert c.argv_prefix == ["X:\\py.exe", "-B", "-m", "videosuite"]
     assert c.env_overrides["PYTHONUTF8"] == "1"
     assert c.env_overrides["PYTHONIOENCODING"] == "utf-8"
 
@@ -231,18 +303,18 @@ def test_resolution_order_constructor_then_env_vars_then_env_path(tmp_path):
 
     # 3) env.path only
     prefix, env = resolve_suite(environ={}, env_path=setup / "env.path")
-    assert prefix == [str(py), "-m", "videosuite"]
+    assert prefix == [str(py), "-B", "-m", "videosuite"]
     assert env["PYTHONPATH"].split(os.pathsep)[0] == str(root)
     # 2) environment variables beat env.path
     prefix, env = resolve_suite(environ={"VIDEOSUITE_PYTHON": str(envpy), "VIDEOSUITE_ROOT": str(root2)},
                                 env_path=setup / "env.path")
-    assert prefix == [str(envpy), "-m", "videosuite"]
+    assert prefix == [str(envpy), "-B", "-m", "videosuite"]
     assert env["PYTHONPATH"].split(os.pathsep)[0] == str(root2)
     # 1) the constructor beats both
     c = SuiteClient(argv_prefix=["Z", "-m", "videosuite"], popen=FakePopen(),
                     environ={"VIDEOSUITE_PYTHON": str(envpy), "VIDEOSUITE_ROOT": str(root2)},
                     env_path=setup / "env.path")
-    assert c.argv_prefix == ["Z", "-m", "videosuite"]
+    assert c.argv_prefix == ["Z", "-B", "-m", "videosuite"]
 
 
 def test_env_path_parsing_and_root_is_grandparent(tmp_path):
@@ -319,7 +391,7 @@ def test_devices_happy_path():
     doc = make_client(pop).devices()
     assert doc["schema"] == "videosuite-devices/1"
     assert [d["id"] for d in doc["devices"]] == ["galaxy_tab_s9_ultra", "sony_bravia_8_ii", "vivobook_pro_16x"]
-    assert pop.argv == ["PY", "-m", "videosuite", "devices", "--json"]
+    assert pop.argv == ["PY", "-B", "-m", "videosuite", "devices", "--json"]
     assert "--list" not in pop.argv
 
 
@@ -329,7 +401,7 @@ def test_score_happy_path_and_argv():
                                  fs="ntfs", lang="eng", deep_dv=True)
     assert len(doc["records"]) == 3
     a = pop.argv
-    assert a[:4] == ["PY", "-m", "videosuite", "score"]
+    assert a[:5] == ["PY", "-B", "-m", "videosuite", "score"]
     assert "--json" in a and "--deep-dv" in a
     assert "--device=sony_bravia_8_ii" in a and "--player=kodi" in a
     assert "--fs=ntfs" in a and "--lang=eng" in a
@@ -353,7 +425,7 @@ def test_facts_happy_path():
     doc["schema"] = "videosuite-facts/1"
     pop = FakePopen(FakeProc(stdout=json.dumps(doc).encode("utf-8")))
     assert make_client(pop).facts(["C:\\a.mkv"])["schema"] == "videosuite-facts/1"
-    assert pop.argv[3] == "facts"
+    assert pop.argv[4] == "facts"
 
 
 def test_compare_happy_path(tmp_path):
@@ -1124,13 +1196,13 @@ def test_d4_compare_timeout_environment_override(raw):
 def test_d4_compare_passes_file_count_mode_top_to_timeout(monkeypatch, tmp_path, mode, top):
     client = make_client(FakePopen(ok("compare.json")))
     calls = []
-    def timeout(*args):
-        calls.append(args)
+    def timeout(*args, **kwargs):
+        calls.append((args, kwargs))
         return 90
     monkeypatch.setattr(client, "_timeout_compare", timeout)
     paths = [str(tmp_path / f"{i}.mkv") for i in range(8)]
     client.compare(paths, str(tmp_path), mode, top)
-    assert calls == [(8, mode, top)]
+    assert calls == [((8, mode, top), {"all_candidates": False})]
 
 
 def test_partial_cleanup_does_not_block_on_hung_killer_or_pipe_close(monkeypatch):
@@ -1523,7 +1595,7 @@ def test_calibration_argv_documents_and_timeouts(sub, monkeypatch):
         kwargs["on_line"] = lines.append
     result = calibration_call(client, sub, **kwargs)
     assert result == calibration_doc(command)
-    assert pop.argv[:5] == ["PY", "-m", "videosuite", "calibrate", command]
+    assert pop.argv[:6] == ["PY", "-B", "-m", "videosuite", "calibrate", command]
     assert "--json" in pop.argv and pop.calls[0][1]["shell"] is False
     expected_timeout = {"plan": 1005, "build": 1740, "report": 105}.get(sub, 60)
     assert runs == [(f"calibrate-{command}", expected_timeout)]
@@ -1765,3 +1837,216 @@ def test_calibration_accepts_nested_additions(sub):
     else:
         extend(doc)
     assert suite_client.parse_document(f"calibrate-{sub}", json.dumps(doc).encode()) == doc
+
+
+# ── Plan 4B: unified comparison calls (U4) ───────────────────────────────────────
+
+FIX4B = Path(__file__).parent / "fixtures" / "suite4b"
+_MEDIA = ["C:\\Movies\\Tom & Jerry 100%.mkv", "D:\\Фильм ^ \"q\".mkv"]
+
+
+def ok4b(name, **kw):
+    return FakeProc(stdout=(FIX4B / name).read_bytes(), **kw)
+
+
+def snapshot_of(plan_name="compare_plan.json"):
+    plan = json.loads((FIX4B / plan_name).read_text(encoding="utf-8"))
+    return {"schema": "videosuite-record-snapshot/1", "facts_version": plan["records"][0]["facts_version"],
+            "records_digest": plan["records_digest"], "records": plan["records"], "candidates": plan["candidates"]}
+
+
+def _no_media_in_argv(pop):
+    joined = "\0".join(pop.argv)
+    assert "Tom & Jerry" not in joined and "Фильм" not in joined and "plan4b-fixture-inputs" not in joined
+    assert pop.calls[-1][1].get("shell", False) is False and isinstance(pop.calls[-1][0], list)
+
+
+def test_facts_partial_has_no_device_args_deep_dv_or_cache():
+    doc = fixture_doc("score_partial.json")
+    doc["schema"] = "videosuite-facts/1"
+    pop = FakePopen(FakeProc(stdout=json.dumps(doc).encode("utf-8")))
+    out = make_client(pop).facts_partial("C:\\probe & 100%.mkv", real_size=3000, real_name="Movie & Co.mkv",
+                                        coverage="head_tail", cancel=lambda: False)
+    assert out["records"][0]["source"]["partial"] is True
+    argv = pop.argv
+    assert argv[4:7] == ["facts", "--list", argv[6]] and "--json" in argv
+    assert "--real-size=3000" in argv and "--real-name=Movie & Co.mkv" in argv and "--coverage=head_tail" in argv
+    assert not any(a.startswith(("--device", "--player", "--fs", "--lang", "--deep-dv", "--cache-dir", "--no-cache"))
+                   for a in argv)
+    assert "C:\\probe & 100%.mkv" not in argv and pop.list_text == "C:\\probe & 100%.mkv\n".encode("utf-8")
+    assert not pop.list_dir.exists()
+
+
+@pytest.mark.parametrize("key,value", [("real_size", 0), ("real_size", True), ("real_name", "a\\b.mkv"),
+                                       ("coverage", "tail"), ("path", "x\n")])
+def test_facts_partial_rejects_bad_values_before_any_process(key, value):
+    kwargs = dict(path="C:\\p.mkv", real_size=10, real_name="m.mkv")
+    kwargs[key] = value
+    with pytest.raises(SuiteArgumentError):
+        make_client(_no_call).facts_partial(**kwargs)
+
+
+def test_facts_cancel_keyword_is_additive_and_returns_none():
+    proc = FakeProc(hang=True)
+    pop = FakePopen(proc)
+    out = make_client(pop, killer=lambda pid: proc.die(1)).facts(["C:\\a.mkv"], cancel=lambda: True)
+    assert out is None and not pop.list_dir.exists()
+
+
+def test_all_candidate_timeout_uses_1225_pairs_for_50_files():
+    client = make_client(FakePopen(), environ={})
+    timeout = client._timeout_compare(50, "accurate", 4, all_candidates=True)
+    assert timeout == max(21600, 1225 * 9000 + 600)
+    assert client._timeout_compare(50, "accurate", 4) == max(21600, 28 * 9000 + 600)     # legacy shortlist: min(n, 2*top)
+    assert make_client(FakePopen(), environ={"VIDEOSUITE_COMPARE_TIMEOUT_S": "90"})._timeout_compare(
+        50, "accurate", 4, all_candidates=True) == 90
+
+
+def test_client_new_flags_keep_json_list_and_snapshot_transport(tmp_path):
+    snapshot = snapshot_of()
+    # plan: list transport, no output folder touched, parsed as compare-plan
+    pop = FakePopen(ok4b("compare_plan.json"))
+    plan = make_client(pop).plan_compare(_MEDIA, str(tmp_path / "out"), results="overall")
+    assert plan["schema"] == "videosuite-compare-plan/1"
+    assert pop.argv[4] == "compare" and "--list" in pop.argv and "--json" in pop.argv
+    assert {"--all-candidates", "--plan", "--results=overall", "--out=" + str(tmp_path / "out")} <= set(pop.argv)
+    assert not any(a.startswith(("--device", "--player", "--primary-player", "--audio-output")) for a in pop.argv)
+    _no_media_in_argv(pop)
+    assert pop.list_text == ("\n".join(_MEDIA) + "\n").encode("utf-8") and not pop.list_dir.exists()
+    assert not (tmp_path / "out").exists()
+    # compare: --records private JSON file, accurate all-candidates
+    pop = FakePopen(ok4b("compare_all.json"))
+    doc = make_client(pop).compare(_MEDIA, str(tmp_path / "out"), "accurate", all_candidates=True, results="overall",
+                                   records=snapshot, device=None, player=None)
+    assert doc["coverage"]["completed_pairs"] == 3
+    assert {"--all-candidates", "--results=overall", "--mode=accurate"} <= set(pop.argv)
+    assert json.loads(pop.records_text) == snapshot
+    _no_media_in_argv(pop)
+    assert not pop.list_dir.exists()
+    # rank with the same snapshot
+    pop = FakePopen(ok4b("rank_device.json"))
+    doc = make_client(pop).rank(_MEDIA, str(tmp_path / "out"), device="sony_bravia_8_ii", player="all",
+                                results="device", records=snapshot, primary_player="just_player",
+                                audio_output="soundbar")
+    assert doc["selected"] == {"device": "sony_bravia_8_ii", "player": "just_player"}
+    assert {"--results=device", "--primary-player=just_player", "--player=all", "--audio-output=soundbar"} <= set(pop.argv)
+    assert json.loads(pop.records_text) == snapshot and not pop.list_dir.exists()
+    # quick: no list file at all, only the snapshot
+    pop = FakePopen(ok4b("quick_overall.json"))
+    doc = make_client(pop).quick(snapshot, results="overall")
+    assert doc["measurement"] == "metadata" and doc["devices"] == {}
+    assert pop.argv[4] == "quick" and "--list" not in pop.argv and "--results=overall" in pop.argv
+    assert json.loads(pop.records_text) == snapshot
+    _no_media_in_argv(pop)
+    assert not pop.list_dir.exists()
+
+
+@pytest.mark.parametrize("call", ["compare", "rank", "quick"])
+@pytest.mark.parametrize("ending", ["success", "failure", "popen", "cancel"])
+def test_private_snapshot_file_is_removed_on_every_exit(tmp_path, call, ending):
+    snapshot = snapshot_of()
+    seen = {}
+    proc = (ok4b({"compare": "compare_all.json", "rank": "rank_overall.json", "quick": "quick_overall.json"}[call])
+            if ending == "success" else FakeProc(rc=2) if ending == "failure" else FakeProc(hang=True))
+
+    def popen(argv, **kw):
+        records = next(a for a in argv if a.startswith("--records="))[len("--records="):]
+        seen["dir"] = Path(records).parent
+        assert json.loads(Path(records).read_text(encoding="utf-8")) == snapshot
+        if ending == "popen":
+            raise OSError("cannot start")
+        return proc
+
+    client = make_client(popen, killer=lambda pid: proc.die(1))
+    kwargs = {"cancel": (lambda: True)} if ending == "cancel" else {}
+
+    def run():
+        if call == "compare":
+            return client.compare(_MEDIA, str(tmp_path), "accurate", all_candidates=True, results="overall",
+                                  records=snapshot, device=None, player=None, **kwargs)
+        if call == "rank":
+            return client.rank(_MEDIA, str(tmp_path), results="overall", records=snapshot, device=None, player=None,
+                               **kwargs)
+        return client.quick(snapshot, results="overall", **kwargs)
+    if ending in ("failure", "popen"):
+        with pytest.raises(SuiteError):
+            run()
+    elif ending == "cancel":
+        assert run() is None
+    else:
+        assert run()["schema"].startswith("videosuite-")
+    assert not seen["dir"].exists()
+
+
+def test_client_forwards_primary_and_evaluation_players_independently(tmp_path):
+    snapshot = snapshot_of()
+    calls = [
+        ("plan", "compare_plan.json", lambda c: c.plan_compare(_MEDIA, str(tmp_path), results="both",
+                                                               device="sony_bravia_8_ii", player="all",
+                                                               primary_player="just_player")),
+        ("compare", "compare_all.json", lambda c: c.compare(_MEDIA, str(tmp_path), "accurate", all_candidates=True,
+                                                             results="both", records=snapshot,
+                                                             device="sony_bravia_8_ii", player="all",
+                                                             primary_player="just_player")),
+        ("rank", "rank_device.json", lambda c: c.rank(_MEDIA, str(tmp_path), device="sony_bravia_8_ii", player="all",
+                                                      results="both", records=snapshot, primary_player="just_player")),
+        ("quick", "quick_just_player_alternatives.json", lambda c: c.quick(snapshot, results="both",
+                                                                          device="sony_bravia_8_ii", player="all",
+                                                                          primary_player="just_player")),
+    ]
+    for name, fixture, call in calls:
+        pop = FakePopen(ok4b(fixture))
+        call(make_client(pop))
+        argv = pop.argv
+        assert argv.count("--primary-player=just_player") == 1, name
+        assert "--player=all" in argv and "--device=sony_bravia_8_ii" in argv, name
+    # Old callers: no primary flag, no new flags, identical legacy argv.
+    legacy = FakePopen(ok("compare.json"))
+    make_client(legacy).compare(["C:\\a.mkv", "C:\\b.mkv"], str(tmp_path), mode="fast", top=3)
+    assert legacy.argv[4:] == ["compare", "--list", legacy.argv[6], "--json", "--device=all", "--player=all",
+                               "--lang=eng", "--out=" + str(tmp_path), "--mode=fast", "--top=3"]
+    legacy_rank = FakePopen(ok("rank.json"))
+    make_client(legacy_rank).rank(["C:\\a.mkv"], str(tmp_path))
+    assert legacy_rank.argv[4:] == ["rank", "--list", legacy_rank.argv[6], "--json", "--device=all", "--player=all",
+                                    "--lang=eng", "--reports=" + str(tmp_path), "--wq=0.5", "--wp=0.5"]
+    # The real primary/alternatives document parses and keeps its partition.
+    doc = suite_client.parse_document("quick", (FIX4B / "quick_just_player_alternatives.json").read_bytes())
+    assert doc["selected"]["player"] == "just_player"
+    assert [a["player"] for a in doc["alternatives"]] == ["builtin_usb", "kodi"]
+
+
+@pytest.mark.parametrize("kwargs", [
+    dict(results="overall", device="sony_bravia_8_ii"), dict(results="overall", primary_player="just_player"),
+    dict(results="overall", audio_output="avr"), dict(results="device"), dict(results="device", device="all", player="all"),
+    dict(results="both", device="sony_bravia_8_ii", player="kodi", primary_player="just_player"),
+    dict(results="both", device="sony_bravia_8_ii", player="all", primary_player="all"),
+    dict(results="best"), dict(results="device", device="sony_bravia_8_ii", player="all", audio_output="hdmi"),
+])
+def test_new_calls_reject_contradictory_selection_before_any_process(tmp_path, kwargs):
+    with pytest.raises(SuiteArgumentError):
+        make_client(_no_call).plan_compare(_MEDIA, str(tmp_path), **kwargs)
+    with pytest.raises(SuiteArgumentError):
+        make_client(_no_call).quick(snapshot_of(), **kwargs)
+
+
+@pytest.mark.parametrize("bad", [None, [], {"schema": "videosuite-record-snapshot/2"}, {"schema": 1}])
+def test_quick_requires_a_record_snapshot_object(bad):
+    with pytest.raises(SuiteArgumentError):
+        make_client(_no_call).quick(bad, results="overall")
+
+
+def test_compare_all_candidates_requires_accurate_mode(tmp_path):
+    with pytest.raises(SuiteArgumentError):
+        make_client(_no_call).compare(_MEDIA, str(tmp_path), "fast", all_candidates=True, results="overall",
+                                      device=None, player=None)
+
+
+def test_plan_and_quick_documents_are_parsed_with_their_own_schema(tmp_path):
+    pop = FakePopen(ok4b("rank_overall.json"))
+    with pytest.raises(SuiteError) as error:
+        make_client(pop).quick(snapshot_of(), results="overall")       # quick is never mistaken for rank
+    assert error.value.kind == "contract"
+    pop = FakePopen(ok4b("compare_all.json"))
+    with pytest.raises(SuiteError) as error:
+        make_client(pop).plan_compare(_MEDIA, str(tmp_path), results="overall")
+    assert error.value.kind == "contract"

@@ -538,3 +538,58 @@ def test_batch_job_results_are_ranked(client, monkeypatch):
     job = client.get(f"/job/{r.json()['job_id']}").json()
     assert [x["file"] for x in job["results"]] == ["high.mkv", "mid.mkv", "low.mkv"]
     assert [x["batch_rank"] for x in job["results"]] == [1, 2, 3]
+
+
+# ── (e) Plan 4B suite documents: the real emitted fixtures carry the frozen shared-contract keys ──
+
+SUITE4B = os.path.join(os.path.dirname(__file__), "fixtures", "suite4b")
+PLAN_KEYS = {"schema", "tool_version", "results", "selection", "mode", "records", "candidates", "pairs", "estimate",
+             "records_digest", "failures"}
+CANDIDATE_KEYS = {"path", "id", "status", "reason", "size", "mtime_ns"}
+ADDITIVE_KEYS = {"results", "selection", "candidates", "records_digest", "coverage"}
+COVERAGE_KEYS = {"expected_pairs", "scheduled_pairs", "completed_pairs", "missing_pairs"}
+QUICK_KEYS = {"schema", "tool_version", "results", "measurement", "records", "overall", "devices", "selected",
+              "alternatives", "failures", "settings"}
+ORDER_KEYS = {"groups", "winner_ids", "coverage_complete"}
+GROUP_KEYS = {"rank", "ids", "status", "basis", "limitations"}
+
+
+def _suite4b(name: str) -> dict:
+    with open(os.path.join(SUITE4B, name + ".json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_suite4b_plan_and_compare_keep_legacy_and_additive_keys():
+    plan = _suite4b("compare_plan")
+    assert set(plan) == PLAN_KEYS
+    assert all(set(c) == CANDIDATE_KEYS for c in plan["candidates"])
+    assert set(plan["estimate"]) == {"pairs", "minutes"} and all(set(p) == {"a", "b"} for p in plan["pairs"])
+    compare = _suite4b("compare_all")
+    assert {"mode", "estimate", "shortlist", "dropped", "pairs", "failed"} | ADDITIVE_KEYS <= set(compare)
+    assert set(compare["coverage"]) == COVERAGE_KEYS and compare["mode"] == "accurate"
+    for name in ("rank_overall", "rank_device"):
+        rank = _suite4b(name)
+        assert {"quality", "same_picture_groups", "not_compared", "missing_pairs", "weights", "devices"} | ADDITIVE_KEYS <= set(rank)
+        assert set(rank["coverage"]) == COVERAGE_KEYS
+    assert _suite4b("rank_overall")["devices"] == {}
+    device = _suite4b("rank_device")
+    assert device["selected"] == {"device": "sony_bravia_8_ii", "player": "just_player"}
+    assert device["evaluated_players"] == ["builtin_usb", "kodi", "just_player"]
+
+
+def test_suite4b_quick_documents_follow_the_quick_contract():
+    expectations = {"quick_overall": ("overall", True, False), "quick_device": ("device", False, True),
+                    "quick_both": ("both", True, True), "quick_partial": ("both", True, True),
+                    "quick_just_player_alternatives": ("both", True, True)}
+    for name, (results, has_overall, has_devices) in expectations.items():
+        doc = _suite4b(name)
+        assert set(doc) == QUICK_KEYS, name
+        assert doc["results"] == results and doc["measurement"] == "metadata"
+        assert (doc["overall"] is not None) == has_overall and bool(doc["devices"]) == has_devices
+        orders = ([doc["overall"]] if doc["overall"] else []) + list(doc["devices"].values())
+        for order in orders:
+            assert set(order) == ORDER_KEYS
+            assert all(set(g) == GROUP_KEYS for g in order["groups"])
+    partial = _suite4b("quick_partial")
+    assert all(r["source"]["partial"] is True for r in partial["records"])
+    assert partial["overall"]["winner_ids"] == []

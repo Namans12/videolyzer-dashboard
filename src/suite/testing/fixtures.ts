@@ -5,10 +5,24 @@ import rankJson from "../../../tests/fixtures/suite/rank.json";
 import compareJson from "../../../tests/fixtures/suite/compare.json";
 import devicesJson from "../../../tests/fixtures/suite/devices.json";
 import versionJson from "../../../tests/fixtures/suite/version.json";
+// Plan 4B: real documents emitted by VideoSuite 0.7.0 under the shared deterministic harness
+// (scripts/make_suite_fixtures.py --plan4b; never hand-edited near-matches).
+import version4bJson from "../../../tests/fixtures/suite4b/version.json";
+import comparePlanJson from "../../../tests/fixtures/suite4b/compare_plan.json";
+import compareAllJson from "../../../tests/fixtures/suite4b/compare_all.json";
+import rankOverallJson from "../../../tests/fixtures/suite4b/rank_overall.json";
+import rankDeviceJson from "../../../tests/fixtures/suite4b/rank_device.json";
+import quickOverallJson from "../../../tests/fixtures/suite4b/quick_overall.json";
+import quickDeviceJson from "../../../tests/fixtures/suite4b/quick_device.json";
+import quickBothJson from "../../../tests/fixtures/suite4b/quick_both.json";
+import quickPartialJson from "../../../tests/fixtures/suite4b/quick_partial.json";
+import quickAlternativesJson from "../../../tests/fixtures/suite4b/quick_just_player_alternatives.json";
 import type {
   CompareDocument, DevicesDocument, Job, PlaybackResult, RankDocument, ScoreDocument, ScoreRecord, SettingsBlock,
   SuiteSettings, VersionInfo,
 } from "../types";
+import { asQuickDocument } from "../../compare/types";
+import type { QuickDocument } from "../../compare/types";
 
 export function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -72,5 +86,33 @@ export function legacyVideo(path = "D:\\Media\\clip.mkv"): Record<string, unknow
     tv_score: 30, tv_label: "Fair", tv_dv_note: "", usb_compatible: true, usb_issues: [], usb_warnings: [],
     tv_playback: "Plays", quick_summary: "summary", insights: "", recommendation: "",
     signal_facts: [], media_facts: [], tool_reports: [],
+  };
+}
+
+// ── Plan 4B real fixtures (deep clones), narrowed by the same Quick guard the Compare screen uses ────────────
+export { asQuickDocument };
+export type { QuickAlternative, QuickDocument, QuickGroup, QuickOrder } from "../../compare/types";
+
+export const version4bDoc = (): Record<string, unknown> => clone(version4bJson) as unknown as Record<string, unknown>;
+export const comparePlanDoc = (): Record<string, unknown> => clone(comparePlanJson) as unknown as Record<string, unknown>;
+export const compareAllDoc = (): CompareDocument & Record<string, unknown> =>
+  clone(compareAllJson) as unknown as CompareDocument & Record<string, unknown>;
+export const rankOverallDoc = (): RankDocument & Record<string, unknown> =>
+  clone(rankOverallJson) as unknown as RankDocument & Record<string, unknown>;
+export const rankDeviceDoc = (): RankDocument & Record<string, unknown> =>
+  clone(rankDeviceJson) as unknown as RankDocument & Record<string, unknown>;
+export const quickOverallDoc = (): QuickDocument => asQuickDocument(clone(quickOverallJson));
+export const quickDeviceDoc = (): QuickDocument => asQuickDocument(clone(quickDeviceJson));
+export const quickBothDoc = (): QuickDocument => asQuickDocument(clone(quickBothJson));
+export const quickPartialDoc = (): QuickDocument => asQuickDocument(clone(quickPartialJson));
+export const quickJustPlayerAlternativesDoc = (): QuickDocument => asQuickDocument(clone(quickAlternativesJson));
+
+/** The /suite/version answer for the Plan 4B (0.7.0) fixture suite. */
+export function versionInfo07(patch: Partial<VersionInfo> = {}): VersionInfo {
+  const v = version4bDoc();
+  return {
+    status: "ok", tool_version: "0.7.0", minimum: "0.3.0", capabilities: v.capabilities as string[],
+    schemas: v.schemas as Record<string, string>, engine_tag: v.engine_tag as string, message: "VideoSuite 0.7.0",
+    checked_at: 1000, ...patch,
   };
 }

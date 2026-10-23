@@ -42,6 +42,7 @@ class JobStore:
         self.keep_finished = keep_finished
         self.grace_s = grace_s
         self._clock = clock
+        self._wall: Callable[[], float] = time.time       # event timestamps; injectable for deterministic envelopes
         self._lock = threading.RLock()
         self._jobs: dict[str, dict] = {}
         self._cancel: set[str] = set()
@@ -134,7 +135,7 @@ class JobStore:
             job = self._jobs.get(job_id)
             if job is None:
                 return False
-            job["events"].append({"msg": msg, "ts": time.time()})
+            job["events"].append({"msg": msg, "ts": self._wall()})
             return True
 
     def events_since(self, job_id: str, n: int) -> Optional[list[dict]]:

@@ -1,0 +1,336 @@
+{
+ "schema": "videosuite-quick/1",
+ "tool_version": "0.7.0",
+ "results": "overall",
+ "measurement": "metadata",
+ "records": [
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+   "source": {
+    "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": ""
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 4096,
+    "duration_s": 120.0,
+    "overall_bitrate_kbps": 0
+   },
+   "video": {
+    "codec": "h264",
+    "profile": null,
+    "level": null,
+    "width": 3840,
+    "height": 1080,
+    "picture_width": 3840,
+    "picture_height": null,
+    "fps": null,
+    "bit_depth": 8,
+    "bitrate_kbps": 10000.0,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "A.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {},
+   "pixel_results": []
+  },
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+   "source": {
+    "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": ""
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 8192,
+    "duration_s": 120.0,
+    "overall_bitrate_kbps": 1
+   },
+   "video": {
+    "codec": "h264",
+    "profile": null,
+    "level": null,
+    "width": 1920,
+    "height": 1080,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": null,
+    "bit_depth": 8,
+    "bitrate_kbps": 10000.0,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "B.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {},
+   "pixel_results": []
+  },
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+   "source": {
+    "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": ""
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 12288,
+    "duration_s": 120.0,
+    "overall_bitrate_kbps": 1
+   },
+   "video": {
+    "codec": "h264",
+    "profile": null,
+    "level": null,
+    "width": 1920,
+    "height": 1080,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": null,
+    "bit_depth": 8,
+    "bitrate_kbps": 10000.0,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "C.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {},
+   "pixel_results": []
+  }
+ ],
+ "overall": {
+  "groups": [
+   {
+    "rank": 1,
+    "ids": [
+     "2e9929ac57d537af2a54a53d3c96d15af6fb4526"
+    ],
+    "status": "estimated",
+    "basis": {
+     "2e9929ac57d537af2a54a53d3c96d15af6fb4526": {
+      "metadata": [
+       3840,
+       0,
+       10000.0,
+       0
+      ],
+      "known": {
+       "width": true,
+       "hdr": true,
+       "bitrate": true,
+       "lossless_audio": true
+      },
+      "observed": {
+       "width": 3840,
+       "hdr": [],
+       "bitrate": 10000.0,
+       "lossless_audio": []
+      },
+      "verification": {
+       "trust_score": 100,
+       "flags": [],
+       "vetoes": []
+      }
+     }
+    },
+    "limitations": []
+   },
+   {
+    "rank": 2,
+    "ids": [
+     "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+     "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49"
+    ],
+    "status": "tie",
+    "basis": {
+     "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9": {
+      "metadata": [
+       1920,
+       0,
+       10000.0,
+       0
+      ],
+      "known": {
+       "width": true,
+       "hdr": true,
+       "bitrate": true,
+       "lossless_audio": true
+      },
+      "observed": {
+       "width": 1920,
+       "hdr": [],
+       "bitrate": 10000.0,
+       "lossless_audio": []
+      },
+      "verification": {
+       "trust_score": 100,
+       "flags": [],
+       "vetoes": []
+      }
+     },
+     "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49": {
+      "metadata": [
+       1920,
+       0,
+       10000.0,
+       0
+      ],
+      "known": {
+       "width": true,
+       "hdr": true,
+       "bitrate": true,
+       "lossless_audio": true
+      },
+      "observed": {
+       "width": 1920,
+       "hdr": [],
+       "bitrate": 10000.0,
+       "lossless_audio": []
+      },
+      "verification": {
+       "trust_score": 100,
+       "flags": [],
+       "vetoes": []
+      }
+     }
+    },
+    "limitations": []
+   }
+  ],
+  "winner_ids": [
+   "2e9929ac57d537af2a54a53d3c96d15af6fb4526"
+  ],
+  "coverage_complete": true
+ },
+ "devices": {},
+ "selected": {
+  "device": null,
+  "player": null
+ },
+ "alternatives": [],
+ "failures": [],
+ "settings": null
+}

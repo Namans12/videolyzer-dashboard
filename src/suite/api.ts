@@ -64,6 +64,11 @@ export async function request<T>(path: string, init: RequestInit, signal?: Abort
   return body as T;
 }
 
+/** POST a JSON body and return the parsed JSON object (the caller narrows it with its own guard). */
+export function postJson<T>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+  return request<T>(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, signal);
+}
+
 export async function startJob(path: string, body: unknown, signal?: AbortSignal): Promise<JobStarted> {
   const out = await request<{ job_id?: unknown }>(path, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) }, signal);
   if (typeof out.job_id !== "string" || out.job_id === "") throw new SuiteApiError(200, "", "bad_response");

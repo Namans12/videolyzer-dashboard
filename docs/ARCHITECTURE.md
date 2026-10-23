@@ -47,7 +47,7 @@ main.py             FastAPI routes, job runners (upload/path/magnet/compare), SS
 jobs.py             Job store: one lock, deep-copy reads, TERMINAL states, cancel flags, retention.
 request_guard.py    ASGI middleware: Host / Origin / Sec-Fetch-Site / JSON Content-Type rules.
 path_guard.py       validate_user_path(): every server-local path, allowed roots, remote drives.
-suite_client.py     SuiteClient: runs `python -m videosuite <cmd> --json` as a subprocess,
+suite_client.py     SuiteClient: runs `python -B -m videosuite <cmd> --json` as a subprocess,
                     validates the videosuite-<cmd>/1 document, kills the process tree.
 suite_routes.py     /suite/version|devices|settings|score|rank|compare: bodies, guards, jobs, heavy slots.
 calibration_routes.py /suite/calibration/*: strict bodies, raw output-link guards, sync calls and slotted jobs.
@@ -117,7 +117,7 @@ POST /suite/score|rank|compare  { paths, ... }
 jobs.create("suite_score" | "suite_rank" | "suite_compare") → {job_id}
     ↓                                        (background task, slot handed to the runner)
 run_score_job / run_rank_job / run_compare_job
-    → SuiteClient.<cmd>(...): python -m videosuite <cmd> --list <file> --json ...
+    → SuiteClient.<cmd>(...): python -B -m videosuite <cmd> --list <file> --json ...
         stdout → validated JSON document, stderr → progress lines (compare) + stderr tail
     → jobs.finish(results=<document>)  or  jobs.fail(error, error_kind) + error_detail
 GET /suite/devices → SuiteClient.devices(), cached 60 s, errors mapped to 503/504/502
@@ -261,9 +261,36 @@ The Suite tab stays mounted after its first visit; inactive panels use `hidden` 
 
 `src/jobStatus.ts` defines the terminal job statuses shared with the legacy pollers. The new read-only `/suite/settings` route derives facts from the suite's devices document; its dedicated fill lock shares one 60-second cache fill with `/suite/devices` and never caches failures or reads the owner's settings file itself.
 
+## `src/compare/` and `src/devices/` frontend (Plan 4B)
+
+`src/App.tsx` orders the tabs **Compare**, **Calibration (TV)**, **Devices info**,
+**Advanced**, with arrow/Home/End roving focus. Advanced has its own tablist for the
+legacy **Analyze** and **Suite (all devices)** views; a stored legacy `active_tab`
+(`analyze`/`suite`) migrates there and a fresh browser opens Compare. Each screen mounts
+on first use, stays mounted while hidden and sits in a labelled `SuiteBoundary`.
+
+| Module | Responsibility |
+| --- | --- |
+| `types.ts` | `RunRequest`, `PublicRunSnapshot` (alias `RunSnapshot`, no `reports_dir`), `RunResult`, `QuickOrder` and their strict guards; candidate checks, request building (primary player kept apart from the evaluation `player`) and the fixed-device lookup. |
+| `api.ts` | Plan/confirm/list/detail/cancel and job reads through the guards (a leak or broken document becomes `bad_response`); the privileged chooser keeps its per-launch token in module memory only. |
+| `useComparison.ts` | Plans, confirms one immutable revision once, polls the existing job until terminal/gone, drops stale answers by generation and reconnects from `GET /comparison/runs`; it never owns the compare→rank handoff and stores nothing in the browser. |
+| `CompareScreen.tsx` | Version/capability banner, input, options, plan/estimate confirmation, stale-plan refusal, progress, frozen choices and the result. |
+| `InputPanel.tsx` | Files/magnets choice, one-title copy, transfer notice, Choose files and inline validation (counts, repeated paths, duplicate names). |
+| `RunOptions.tsx` | Results and depth radio groups (Full disabled for magnets), the three fixed devices, player, alternatives and per-run conditions (disabled for Overall). |
+| `ComparisonResult.tsx` | Answer first, coverage/failures, requested panels only (Quick never cast as a rank document), chosen player first and labelled alternatives, provenance without paths. |
+| `FactsTable.tsx` | The frozen facts side by side; partial reads and unknown values stay visible. |
+| `ReportPanel.tsx` | Registry reports: hash-checked text view, sandboxed HTML frame, relative export links. |
+| `supported-devices.json` | Release data: the three supported ids in priority order and their short labels. |
+| `compare.css` | Theme-token layout, wrapping paths, narrow-screen columns. |
+| `testing/fixtures.ts` | Deep clones of the real `tests/fixtures/comparison` HTTP envelopes. |
+
+In `src/devices/`, `DevicesInfo.tsx` shows the fixed devices from the live catalogue, read-only
+(no management controls). `RankResult.tsx` gained `showOverall` and `selectedPlayer` for
+the unified result; its defaults keep the Advanced rendering.
+
 ## `src/suite/calibration/` frontend
 
-The third tab is **Calibration (TV)**. `src/App.tsx` provides three-way arrow/Home/End
+The second tab is **Calibration (TV)**. `src/App.tsx` provides arrow/Home/End
 keyboard navigation and a labelled `SuiteBoundary`. Calibration checks version first;
 only an `ok` version advertising `calibration` loads settings and mounts the workspace.
 An installed 0.3/0.4 suite gets the update-to-0.5.0 message here while Suite stays usable.

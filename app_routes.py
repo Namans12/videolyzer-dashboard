@@ -10,6 +10,7 @@ from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse
 
 from app_lifecycle import AppLifecycle
+import native_chooser
 
 
 def authorize_control(request: Request) -> None:
@@ -100,3 +101,20 @@ def install_app_routes(app: FastAPI, lifecycle: AppLifecycle) -> None:
 
     app.add_api_route("/app/quit", quit_app, methods=["POST"])
     app.add_api_route("/app/open-log", open_log, methods=["POST"])
+
+    async def choose_files(request: Request):
+        if await control_body(request) != {}:
+            raise HTTPException(400, 'empty JSON object required')
+        if lifecycle.mode != 'keep':
+            raise HTTPException(409, 'The app is shutting down.')
+        try:
+            paths = await native_chooser.choose_files_async(cancel_check=lambda: lifecycle.mode != 'keep')
+        except native_chooser.ChooserClosing:
+            raise HTTPException(409, 'The app is shutting down.') from None
+        except native_chooser.ChooserBusy:
+            raise HTTPException(409, 'A file dialog is already open.') from None
+        except OSError:
+            raise HTTPException(503, 'Could not open file selection; paste individual paths instead.') from None
+        return JSONResponse(dict(paths=paths, cancelled=not paths), headers={'Cache-Control': 'no-store'})
+
+    app.add_api_route('/app/choose-files', choose_files, methods=['POST'])

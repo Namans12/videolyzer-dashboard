@@ -1,32 +1,46 @@
 import type { DevicesDocument, RankDocument } from "./types";
-import { formatCreditText } from "./verdict";
+import { formatCreditText, scoreText } from "./verdict";
 import { VerdictBadge } from "./VerdictBadge";
 
-export function RankResult({ doc, devices }: { doc: RankDocument; devices: DevicesDocument | null }) {
+/** A real videosuite-rank/1 document. Defaults are the Advanced (all devices) view. In the unified result,
+ *  `showOverall={false}` hides the neutral quality table (shown in its own Best overall panel), and
+ *  `selectedPlayer` ("device/player" or a player id) puts the owner's chosen player first and labels the others as
+ *  alternatives. Document-level notices (same picture, conflicts, stale/legacy/missing reports) always stay visible. */
+export function RankResult({ doc, devices, showOverall = true, selectedPlayer }: {
+  doc: RankDocument;
+  devices: DevicesDocument | null;
+  showOverall?: boolean;
+  selectedPlayer?: string;
+}) {
   const order = (devices?.devices ?? []).flatMap(d => d.players.map(p => `${d.id}/${p.id}`));
+  const isSelected = (key: string) => selectedPlayer !== undefined
+    && (key === selectedPlayer || (!selectedPlayer.includes("/") && key.endsWith(`/${selectedPlayer}`)));
   const keys = Object.keys(doc.devices).sort((a, b) => {
+    if (isSelected(a) !== isSelected(b)) return isSelected(a) ? -1 : 1;
     const ai = order.indexOf(a);
     const bi = order.indexOf(b);
     return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi) || a.localeCompare(b);
   });
   return <div>
-    <h3>Picture quality (device-neutral)</h3>
-    <table className="suite-table">
-      <thead>
-        <tr>
-          {["#", "File", "Quality", "Pairs compared"].map(h => <th key={h}>{h}</th>)}
-        </tr>
-      </thead>
+    {showOverall && <>
+      <h3>Picture quality (device-neutral)</h3>
+      <table className="suite-table">
+        <thead>
+          <tr>
+            {["#", "File", "Quality", "Pairs compared"].map(h => <th key={h}>{h}</th>)}
+          </tr>
+        </thead>
 
-      <tbody>
-        {doc.quality.map(row => <tr key={row.id}>
-          <td>{row.rank}</td>
-          <td>{row.label}</td>
-          <td>{row.quality_score?.toFixed(1) ?? "not compared"}</td>
-          <td>{row.games}</td>
-        </tr>)}
-      </tbody>
-    </table>
+        <tbody>
+          {doc.quality.map(row => <tr key={row.id}>
+            <td>{row.rank}</td>
+            <td>{row.label}</td>
+            <td>{row.quality_score?.toFixed(1) ?? "not compared"}</td>
+            <td>{row.games}</td>
+          </tr>)}
+        </tbody>
+      </table>
+    </>}
 
     {doc.same_picture_groups?.filter(g => g.length > 1).map((g, i) => <p key={i}>
       Same picture: {g.join(" = ")}
@@ -45,6 +59,13 @@ export function RankResult({ doc, devices }: { doc: RankDocument; devices: Devic
         ).join(", ")}
       </p>}
 
+    {!!doc.legacy_reports?.length
+      && <p>
+        {doc.legacy_reports.length} older report(s) could not be checked against the current files: {doc.legacy_reports.map(
+          r => `${r.name1} vs ${r.name2}`
+        ).join(", ")}
+      </p>}
+
     {!!doc.missing_pairs?.length
       && <p>
         {doc.missing_pairs.length} pair(s) have no comparison report yet.</p>}
@@ -54,7 +75,8 @@ export function RankResult({ doc, devices }: { doc: RankDocument; devices: Devic
       const [deviceId, playerId] = key.split("/");
       const device = devices?.devices.find(v => v.id === deviceId);
       const player = device?.players.find(v => v.id === playerId);
-      const heading = device && player ? `${device.label} - ${player.label}` : key;
+      const name = device && player ? `${device.label} - ${player.label}` : key;
+      const heading = selectedPlayer === undefined ? name : `${isSelected(key) ? "Your player" : "Alternative player"}: ${name}`;
       const whys = [...new Set(d.ranking.map(r => r.why).filter((v): v is string => v != null))];
       return <section className="suite-rank" aria-label={heading} key={key}>
         <h4>{heading}</h4>
@@ -78,7 +100,7 @@ export function RankResult({ doc, devices }: { doc: RankDocument; devices: Devic
               <td>{row.label}</td>
               <td>{row.device_score?.toFixed(1) ?? "-"}</td>
               <td>{row.quality_score?.toFixed(1) ?? "not compared"}</td>
-              <td>{Math.round(row.playback_score)}</td>
+              <td>{scoreText(row.playback_score, row.score_range)}</td>
               <td>
                 <VerdictBadge verdict={row.verdict} evidence={row.evidence} />
               </td>

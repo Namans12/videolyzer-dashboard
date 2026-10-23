@@ -1,9 +1,9 @@
-"""Client for the installed VideoSuite CLI (``python -m videosuite``).
+"""Client for the installed VideoSuite CLI (``python -B -m videosuite``).
 
 The Dashboard never imports the Comparizer engine and never calls a ``.bat``: cmd.exe
 re-parses the arguments of a batch file, so ``&``, ``%``, ``^`` and ``"`` in a path would
 reach the shell, and terminating a batch file kills only cmd.exe. Instead the client
-starts the venv's ``python.exe -m videosuite ...`` with an argument LIST (never a shell
+starts the venv's ``python.exe -B -m videosuite ...`` with an argument LIST (never a shell
 string) and the same environment ``setup\\_env.bat`` + ``run_suite.bat`` build.
 
 * Resolution (first match wins): the constructor's ``argv_prefix``; the environment
@@ -164,7 +164,7 @@ def _is_unsafe_launcher(path: str) -> bool:
 def _build_env(environ: Mapping[str, str], root: str, kind: str = "venv", prefix: str = "") -> Dict[str, str]:
     """What ``setup\\_env.bat`` and ``run_suite.bat`` set, as environment overrides."""
     env = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", "PYTHONNOUSERSITE": "1", "PYTHONSAFEPATH": "1",
-           "PYTHONPATH": root}
+           "PYTHONPATH": root, "PYTHONDONTWRITEBYTECODE": "1"}
     parts: List[str] = []
     for sub in (("tools", "bin"), ("ffmpeg", "bin")):          # _env.bat prepends ffmpeg\bin first, then tools\bin
         d = os.path.join(root, *sub)
@@ -213,7 +213,7 @@ def resolve_suite(environ: Optional[Mapping[str, str]] = None,
         raise SuiteUnavailable("The configured Python executable does not exist.")
     if not os.path.isdir(root):
         raise SuiteUnavailable("The VideoSuite root folder does not exist.")
-    return [py, "-m", "videosuite"], _build_env(environ, root, kind, prefix)
+    return [py, "-B", "-m", "videosuite"], _build_env(environ, root, kind, prefix)
 
 
 def taskkill_tree(pid: int, *, timeout: float = 15) -> None:
@@ -334,6 +334,67 @@ def _check_mode(value: Any) -> str:
     return value
 
 
+def _partial_args(real_size: Any, real_name: Any, coverage: Any) -> List[str]:
+    if isinstance(real_size, bool) or not isinstance(real_size, int) or not 1 <= real_size <= 2**50:
+        raise SuiteArgumentError("real_size must be a whole number of bytes")
+    if (not isinstance(real_name, str) or _text_problem(real_name) is not None
+            or "/" in real_name or "\\" in real_name or len(real_name) > 255):
+        raise SuiteArgumentError("real_name must be a plain file name")
+    if coverage not in ("head", "head_tail"):
+        raise SuiteArgumentError("coverage must be head or head_tail")
+    return [f"--real-size={real_size}", f"--real-name={real_name}", f"--coverage={coverage}"]
+
+
+def _run_args(results: Any, device: Any, player: Any, primary_player: Any, fs: Any, lang: Any,
+              audio_output: Any) -> List[str]:
+    """Plan 4B selection: ``primary_player`` is the owner's chosen player, ``player`` the evaluation selector.
+
+    Overall never names a device, player, primary player, file system or audio output (the suite does not load
+    the catalogue). Device/Both need one specific device and an explicit evaluation selector; when a primary is
+    given the selector is ``all`` (alternatives) or that same primary. Contradictions are refused, never
+    rewritten."""
+    if results not in RESULTS:
+        raise SuiteArgumentError("results must be overall, device or both")
+    if audio_output is not None and audio_output not in AUDIO_OUTPUTS:
+        raise SuiteArgumentError("audio_output must be tv_speakers, soundbar or avr")
+    if results == "overall":
+        if (device not in (None, "all") or player not in (None, "all") or primary_player is not None
+                or audio_output is not None or fs is not None):
+            raise SuiteArgumentError("overall results take no device, player, file system or audio output")
+        return ["--results=overall", f"--lang={_check_lang(lang)}"]
+    if device in (None, "all") or player is None:
+        raise SuiteArgumentError("device results need one specific device and a player selection")
+    args = [f"--results={results}"] + SuiteClient._device_args(device, player, fs, lang)
+    if primary_player is not None:
+        primary = _check_name(primary_player, "primary_player")
+        if primary == "all" or player not in ("all", primary):
+            raise SuiteArgumentError("player must be all or the primary player")
+        args.append(f"--primary-player={primary}")
+    if audio_output is not None:
+        args.append(f"--audio-output={audio_output}")
+    return args
+
+
+def _check_snapshot(value: Any) -> Dict[str, Any]:
+    if not (isinstance(value, dict) and value.get("schema") == SNAPSHOT_SCHEMA
+            and isinstance(value.get("records"), list) and isinstance(value.get("candidates"), list)
+            and isinstance(value.get("records_digest"), str) and _integer(value.get("facts_version"))):
+        raise SuiteArgumentError("records must be a videosuite-record-snapshot/1 object")
+    _snapshot_bytes(value)
+    return value
+
+
+def _snapshot_bytes(value: Dict[str, Any]) -> bytes:
+    import json
+    try:
+        data = json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+    except (TypeError, ValueError):
+        raise SuiteArgumentError("records must be finite JSON") from None
+    if len(data) > MAX_STDOUT_BYTES:
+        raise SuiteArgumentError("records snapshot is larger than 20 MB")
+    return data
+
+
 # ── document validation ──────────────────────────────────────────────────────────
 
 _REQUIRED: Dict[str, Dict[str, Any]] = {
@@ -355,7 +416,20 @@ _REQUIRED: Dict[str, Dict[str, Any]] = {
                         "changes": list, "conflicts": list, "skipped": list},
     "calibrate-report": {"note": str, "kit_active": bool, "recovery_required": bool,
                          "files": list, "best_player_changes": list},
+    # Plan 4B (VideoSuite 0.7.0): read-only planning and metadata recommendations.
+    "compare-plan": {"results": str, "selection": str, "mode": str, "records": list, "candidates": list,
+                     "pairs": list, "estimate": dict, "records_digest": str, "failures": list},
+    "quick": {"results": str, "measurement": str, "records": list, "overall": (dict, type(None)), "devices": dict,
+              "selected": dict, "alternatives": list, "failures": list},
 }
+
+RESULTS = ("overall", "device", "both")
+AUDIO_OUTPUTS = ("tv_speakers", "soundbar", "avr")
+EVIDENCE_WORDS = ("official", "owner", "reviewed", "forum", "inferred", "unknown")
+SNAPSHOT_SCHEMA = "videosuite-record-snapshot/1"
+_QUICK_STATUSES = ("estimated", "tie", "insufficient")
+_MEASURED_KEYS = frozenset({"quality_score", "device_score"})
+_DIGEST_RE = re.compile(r"[0-9a-f]{64}")
 
 
 def _contract(message: str, stderr_tail: str = "", exit_code: Optional[int] = None) -> SuiteError:
@@ -493,6 +567,117 @@ def _validate_calibration(command: str, doc: dict, require: Callable, fields: Ca
                 fields(row[side], path + "." + side, {"player": string, "verdict": lambda v: v in _VERDICTS})
 
 
+def _count(value: Any) -> bool:
+    return _integer(value) and value >= 0
+
+
+def _nullable_count(value: Any) -> bool:
+    return value is None or _count(value)
+
+
+def _has_measured_key(value: Any) -> bool:
+    if isinstance(value, dict):
+        return any(key in _MEASURED_KEYS or _has_measured_key(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_has_measured_key(item) for item in value)
+    return False
+
+
+def _validate_plan4b(command: str, doc: dict, require: Callable, fields: Callable) -> None:
+    """Plan 4B fields: required in compare-plan/quick, additive (validated when present) in compare/rank."""
+    string = lambda v: isinstance(v, str)
+    nullable_string = lambda v: v is None or isinstance(v, str)
+    digest = lambda v: isinstance(v, str) and _DIGEST_RE.fullmatch(v) is not None
+
+    def records(rows: Any, path: str) -> None:
+        require(isinstance(rows, list), path)
+        for i, row in enumerate(rows):
+            fields(row, f"{path}[{i}]", {"id": string, "source": lambda v: isinstance(v, dict)})
+            fields(row["source"], f"{path}[{i}].source", {"path": string})
+            if "partial" in row["source"]:
+                require(isinstance(row["source"]["partial"], bool), f"{path}[{i}].source.partial")
+
+    def candidates(rows: Any) -> None:
+        require(isinstance(rows, list), "candidates")
+        for i, row in enumerate(rows):
+            path = f"candidates[{i}]"
+            fields(row, path, {"path": string, "id": nullable_string, "status": lambda v: v in ("ready", "unreadable"),
+                               "reason": nullable_string, "size": _nullable_count, "mtime_ns": _nullable_count})
+            require((row["status"] == "ready") == isinstance(row["id"], str), path + ".id")
+
+    def selection() -> None:
+        if "selected" in doc:
+            fields(doc["selected"], "selected", {"device": string, "player": string})
+        if "evaluated_players" in doc:
+            require(_strings(doc["evaluated_players"]), "evaluated_players")
+
+    def order(value: Any, path: str) -> None:
+        fields(value, path, {"groups": lambda v: isinstance(v, list), "winner_ids": _strings,
+                             "coverage_complete": lambda v: isinstance(v, bool)})
+        ids = set()
+        for i, group in enumerate(value["groups"]):
+            gpath = f"{path}.groups[{i}]"
+            fields(group, gpath, {"rank": _nullable_count, "ids": lambda v: _strings(v) and bool(v),
+                                  "status": lambda v: v in _QUICK_STATUSES, "basis": lambda v: isinstance(v, dict),
+                                  "limitations": _strings})
+            ids.update(group["ids"])
+            for key, row in group["basis"].items():
+                bpath = f"{gpath}.basis.{key}"
+                require(isinstance(row, dict), bpath)
+                if "playback" in row:
+                    fields(row["playback"], bpath + ".playback", {
+                        "verdict": lambda v: v in _VERDICTS, "score": _number,
+                        "score_range": lambda v: isinstance(v, list) and len(v) == 2 and all(_number(x) for x in v),
+                        "evidence": lambda v: v in EVIDENCE_WORDS, "effective_hdr": string,
+                        "effective_audio": nullable_string, "issues": lambda v: isinstance(v, list)})
+        require(set(value["winner_ids"]) <= ids, path + ".winner_ids")
+        require(not _has_measured_key(value), path + " (metadata estimates never carry measured scores)")
+
+    if command in ("compare", "rank", "compare-plan"):
+        if "results" in doc:
+            require(doc["results"] in RESULTS, "results")
+        if "selection" in doc:
+            require(doc["selection"] == "all", "selection")
+        if "records_digest" in doc:
+            require(digest(doc["records_digest"]), "records_digest")
+        if "candidates" in doc:
+            candidates(doc["candidates"])
+        if "coverage" in doc:
+            fields(doc["coverage"], "coverage", {key: _count for key in
+                   ("expected_pairs", "scheduled_pairs", "completed_pairs", "missing_pairs")})
+        if "records" in doc:
+            records(doc["records"], "records")
+        selection()
+    if command == "compare-plan":
+        require(doc["mode"] == "accurate", "mode")
+        fields(doc["estimate"], "estimate", {"pairs": _count, "minutes": _count})
+        ids = {r["id"] for r in doc["records"]}
+        for i, pair in enumerate(doc["pairs"]):
+            fields(pair, f"pairs[{i}]", {"a": lambda v: v in ids, "b": lambda v: v in ids})
+        for i, row in enumerate(doc["failures"]):
+            fields(row, f"failures[{i}]", {"path": string, "reason": string})
+    elif command == "quick":
+        require(doc["results"] in RESULTS, "results")
+        require(doc["measurement"] == "metadata", "measurement")
+        records(doc["records"], "records")
+        require((doc["overall"] is None) == (doc["results"] == "device"), "overall")
+        if doc["overall"] is not None:
+            order(doc["overall"], "overall")
+        require((doc["results"] == "overall") == (not doc["devices"]), "devices")
+        for key, value in doc["devices"].items():
+            order(value, "devices." + key)
+        fields(doc["selected"], "selected", {"device": nullable_string, "player": nullable_string})
+        for i, row in enumerate(doc["alternatives"]):
+            path = f"alternatives[{i}]"
+            fields(row, path, {"device": string, "player": string, "order": lambda v: isinstance(v, dict)})
+            order(row["order"], path + ".order")
+            require(row["player"] != doc["selected"]["player"], path + ".player")
+        for i, row in enumerate(doc["failures"]):
+            fields(row, f"failures[{i}]", {"path": string, "reason": string})
+        if "settings" in doc:
+            require(doc["settings"] is None or isinstance(doc["settings"], dict), "settings")
+
+
 def _validate_deep(command: str, doc: dict) -> None:
     """Validate consumer-facing fields while accepting additive, unknown fields."""
     def require(valid: bool, path: str) -> None:
@@ -508,6 +693,8 @@ def _validate_deep(command: str, doc: dict) -> None:
     nullable_string = lambda value: value is None or isinstance(value, str)
     nullable_number = lambda value: value is None or _number(value)
     verdict = lambda value: value in _VERDICTS
+    if command in ("compare", "rank", "compare-plan", "quick"):
+        _validate_plan4b(command, doc, require, fields)
     if command.startswith("calibrate-"):
         _validate_calibration(command, doc, require, fields)
     elif command == "version":
@@ -587,6 +774,11 @@ def parse_document(command: str, raw: bytes, *, oversize: bool = False) -> Suite
         doc = json.loads(text, parse_constant=_reject_constant)
     except (ValueError, RecursionError):
         raise _contract("The suite output is not valid JSON.") from None
+    return SuiteDocument(validate_document(command, doc))
+
+
+def validate_document(command: str, doc: Any) -> dict:
+    """Validate an already-parsed ``videosuite-<command>/1`` document (also nested in run results); returns it."""
     if not isinstance(doc, dict):
         raise _contract("The suite output is not a JSON object.")
     if doc.get("schema") != f"videosuite-{command}/1":
@@ -601,7 +793,7 @@ def parse_document(command: str, raw: bytes, *, oversize: bool = False) -> Suite
         if doc["mode"] not in _MODES or doc["failed"] < 0 or not all(isinstance(p, dict) for p in doc["pairs"]):
             raise _contract("The compare document has invalid values.")
     _validate_deep(command, doc)
-    return SuiteDocument(doc)
+    return doc
 
 
 # ── process plumbing ─────────────────────────────────────────────────────────────
@@ -693,6 +885,10 @@ class SuiteClient:
             prefix, overrides = resolve_suite(self._environ, env_path)
             overrides.update(env or {})
             root = overrides.get("PYTHONPATH")
+        # Apply to injected prefixes too: every command/helper uses this prefix.
+        if "-B" not in prefix[1:]:
+            prefix.insert(1, "-B")
+        overrides["PYTHONDONTWRITEBYTECODE"] = "1"
         self.argv_prefix: List[str] = prefix
         self.env_overrides: Dict[str, str] = overrides
         self.root: Optional[str] = str(root) if root else None          # working folder of the child
@@ -710,14 +906,19 @@ class SuiteClient:
     def _timeout_score_rank(self, n_files: int, deep_dv: bool) -> float:
         return SCORE_BASE_S + n_files * (SCORE_PER_FILE_S + (DEEP_DV_PER_FILE_S if deep_dv else 0))
 
-    def _timeout_compare(self, n_files: int = 0, mode: str = "fast", top: int = 4) -> float:
+    def _timeout_compare(self, n_files: int = 0, mode: str = "fast", top: int = 4, *,
+                         all_candidates: bool = False) -> float:
+        """Safety ceiling for one compare process, never displayed as an ETA.
+
+        Legacy shortlist runs compare at most ``2*top`` files; an all-candidates run compares every unordered pair
+        of the ``n_files`` submitted files (50 files = 1225 pairs). A valid user override is used exactly."""
         raw = self._environ.get(ENV_COMPARE_TIMEOUT)
         try:
             value = float(raw) if raw is not None else None
         except ValueError:
             value = None
         if value is None or not math.isfinite(value) or value <= 0:
-            n = min(n_files, 2 * top)
+            n = n_files if all_candidates else min(n_files, 2 * top)
             pairs = n * (n - 1) // 2
             return max(COMPARE_TIMEOUT_S, pairs * COMPARE_PER_PAIR_S.get(mode, 9000) + 600)
         return value
@@ -732,10 +933,46 @@ class SuiteClient:
         outcome = self._run("version", ["version", "--json"], self._timeout_devices())
         return self._finish("version", outcome)
 
-    def facts(self, paths: Sequence[str], deep_dv: bool = False) -> SuiteDocument:
+    def facts(self, paths: Sequence[str], deep_dv: bool = False, *,
+              cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Facts only. ``cancel`` is additive: existing callers are unchanged; a cancelled call returns ``None``."""
         paths = _check_paths(paths)
         extra = ["--deep-dv"] if deep_dv else []
-        return self._with_list("facts", paths, extra, self._timeout_score_rank(len(paths), deep_dv))
+        return self._with_list("facts", paths, extra, self._timeout_score_rank(len(paths), deep_dv), cancel=cancel)
+
+    def facts_partial(self, path: str, *, real_size: int, real_name: str, coverage: str = "head",
+                      cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Facts of ONE partial download (Plan 4B Quick magnets): no device/player arguments, no deep Dolby Vision
+        scan and no record cache (the suite never caches a partial record). Returns ``None`` when cancelled."""
+        paths = _check_paths([path])
+        extra = _partial_args(real_size, real_name, coverage)
+        return self._with_list("facts", paths, extra, SCORE_BASE_S + SCORE_PER_FILE_S, cancel=cancel,
+                               cleanup_budget=5.0)
+
+    def plan_compare(self, paths: Sequence[str], out_dir: str, *, results: str, device: Optional[str] = None,
+                     player: Optional[str] = None, primary_player: Optional[str] = None, fs: Optional[str] = None,
+                     lang: str = "eng", audio_output: Optional[str] = None,
+                     cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Read-only all-candidates plan (``videosuite-compare-plan/1``): facts, candidates, every unordered pair and
+        the suite's own estimate. ``out_dir`` is syntactically required by the CLI but never created or touched."""
+        paths = _check_paths(paths)
+        out_dir = _check_dir(out_dir, "out_dir")
+        extra = (["--all-candidates", "--plan", f"--out={out_dir}"]
+                 + _run_args(results, device, player, primary_player, fs, lang, audio_output))
+        return self._with_list("compare", paths, extra, self._timeout_score_rank(len(paths), False),
+                               document="compare-plan", cancel=cancel)
+
+    def quick(self, snapshot: Dict[str, Any], *, results: str, device: Optional[str] = None,
+              player: Optional[str] = None, primary_player: Optional[str] = None, fs: Optional[str] = None,
+              lang: str = "eng", audio_output: Optional[str] = None,
+              cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
+        """Metadata recommendations (``videosuite-quick/1``) from a validated record snapshot; never pixels.
+
+        The snapshot travels in a private JSON file (never argv); no path list is needed."""
+        snapshot = _check_snapshot(snapshot)
+        extra = _run_args(results, device, player, primary_player, fs, lang, audio_output)
+        return self._with_list("quick", [], extra, self._timeout_score_rank(len(snapshot["records"]), False),
+                               records=snapshot, use_list=False, cancel=cancel)
 
     def score(self, paths: Sequence[str], device: Optional[str] = "all", player: Optional[str] = "all",
               fs: Optional[str] = None, lang: str = "eng", deep_dv: bool = False, *,
@@ -750,47 +987,76 @@ class SuiteClient:
                       lang: str = "eng", cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
         """Score one partial download using its original size and file name."""
         paths = _check_paths([path])
-        if isinstance(real_size, bool) or not isinstance(real_size, int) or not 1 <= real_size <= 2**50:
-            raise SuiteArgumentError("real_size must be a whole number of bytes")
-        if (not isinstance(real_name, str) or _text_problem(real_name) is not None
-                or "/" in real_name or "\\" in real_name or len(real_name) > 255):
-            raise SuiteArgumentError("real_name must be a plain file name")
-        if coverage not in ("head", "head_tail"):
-            raise SuiteArgumentError("coverage must be head or head_tail")
-        extra = self._device_args(device, player, fs, lang) + [f"--real-size={real_size}",
-                f"--real-name={real_name}", f"--coverage={coverage}"]
+        extra = self._device_args(device, player, fs, lang) + _partial_args(real_size, real_name, coverage)
         return self._with_list("score", paths, extra, SCORE_BASE_S + SCORE_PER_FILE_S, cancel=cancel,
                                cleanup_budget=5.0)
 
     def rank(self, paths: Sequence[str], reports_dir: str, device: Optional[str] = "all", player: Optional[str] = "all",
              fs: Optional[str] = None, lang: str = "eng", wq: float = 0.5, wp: float = 0.5,
-             deep_dv: bool = False, *, cancel: Optional[Callable[[], bool]] = None) -> Optional[SuiteDocument]:
-        """Rank the files. Returns the document, or ``None`` if cancelled via ``cancel`` (the process tree is killed)."""
+             deep_dv: bool = False, *, cancel: Optional[Callable[[], bool]] = None, results: str = "both",
+             records: Optional[Dict[str, Any]] = None, audio_output: Optional[str] = None,
+             primary_player: Optional[str] = None) -> Optional[SuiteDocument]:
+        """Rank the files. Returns the document, or ``None`` if cancelled via ``cancel`` (the process tree is killed).
+
+        Plan 4B keywords are additive: ``results`` (overall = neutral rank, no device data), ``records`` (a validated
+        record snapshot sent as a private JSON file, no re-probe), ``audio_output`` and ``primary_player``. With
+        none of them the argv is exactly the legacy one."""
         paths = _check_paths(paths)
         reports_dir = _check_dir(reports_dir, "reports_dir")
         wq, wp = _check_weight(wq, "wq"), _check_weight(wp, "wp")
         if wq == 0 and wp == 0:
             raise SuiteArgumentError("wq and wp cannot both be zero")
-        extra = self._device_args(device, player, fs, lang) + [f"--reports={reports_dir}", f"--wq={wq!r}", f"--wp={wp!r}"]
+        unified = records is not None or results != "both" or audio_output is not None or primary_player is not None
+        if unified:
+            records = _check_snapshot(records) if records is not None else None
+            if deep_dv and records is not None:
+                raise SuiteArgumentError("deep_dv cannot be combined with a record snapshot")
+            selection = _run_args(results, device, player, primary_player, fs, lang, audio_output)
+        else:
+            selection = self._device_args(device, player, fs, lang)
+        extra = selection + [f"--reports={reports_dir}", f"--wq={wq!r}", f"--wp={wp!r}"]
         if deep_dv:
             extra.append("--deep-dv")
-        return self._with_list("rank", paths, extra, self._timeout_score_rank(len(paths), deep_dv), cancel=cancel)
+        return self._with_list("rank", paths, extra, self._timeout_score_rank(len(paths), deep_dv), cancel=cancel,
+                               records=records)
 
     def compare(self, paths: Sequence[str], out_dir: str, mode: str = "fast", top: int = 4, *,
                 on_line: Optional[Callable[[str], None]] = None,
                 cancel: Optional[Callable[[], bool]] = None, device: Optional[str] = "all",
                 player: Optional[str] = "all", fs: Optional[str] = None, lang: str = "eng",
-                deep_dv: bool = False) -> Optional[SuiteDocument]:
-        """Run the pixel comparison. Returns the document (also for exit code 1: ``failed > 0``), or ``None`` if cancelled."""
+                deep_dv: bool = False, all_candidates: bool = False, results: str = "both",
+                records: Optional[Dict[str, Any]] = None, audio_output: Optional[str] = None,
+                primary_player: Optional[str] = None) -> Optional[SuiteDocument]:
+        """Run the pixel comparison. Returns the document (also for exit code 1: ``failed > 0``), or ``None`` if cancelled.
+
+        Plan 4B keywords are additive: ``all_candidates`` (accurate round robin of EVERY readable submitted file, no
+        shortlist; requires ``mode="accurate"``), ``results``, ``records`` (private JSON snapshot transport),
+        ``audio_output`` and ``primary_player``. With none of them the argv is exactly the legacy one."""
         paths = _check_paths(paths)
         out_dir = _check_dir(out_dir, "out_dir")
         mode, top = _check_mode(mode), _check_top(top)
-        extra = self._device_args(device, player, fs, lang) + [f"--out={out_dir}", f"--mode={mode}", f"--top={top}"]
+        if not isinstance(all_candidates, bool):
+            raise SuiteArgumentError("all_candidates must be a boolean")
+        unified = (all_candidates or records is not None or results != "both" or audio_output is not None
+                   or primary_player is not None)
+        if unified:
+            if all_candidates and mode != "accurate":
+                raise SuiteArgumentError("an all-candidates comparison uses accurate mode")
+            records = _check_snapshot(records) if records is not None else None
+            if deep_dv and records is not None:
+                raise SuiteArgumentError("deep_dv cannot be combined with a record snapshot")
+            selection = _run_args(results, device, player, primary_player, fs, lang, audio_output)
+        else:
+            selection = self._device_args(device, player, fs, lang)
+        extra = selection + [f"--out={out_dir}", f"--mode={mode}", f"--top={top}"]
+        if all_candidates:
+            extra.append("--all-candidates")
         if deep_dv:
             extra.append("--deep-dv")
         self._require_full_support()
-        return self._with_list("compare", paths, extra, self._timeout_compare(len(paths), mode, top),
-                               on_line=on_line, cancel=cancel)
+        return self._with_list("compare", paths, extra,
+                               self._timeout_compare(len(paths), mode, top, all_candidates=all_candidates),
+                               on_line=on_line, cancel=cancel, records=records)
 
     def _require_full_support(self) -> None:
         """Refresh packaged engine checks before any pixel process/list/output exists."""
@@ -923,21 +1189,34 @@ class SuiteClient:
     def _with_list(self, command: str, paths: List[str], extra: List[str], timeout: float, *,
                    on_line: Optional[Callable[[str], None]] = None,
                    cancel: Optional[Callable[[], bool]] = None,
-                   cleanup_budget: Optional[float] = None) -> Optional[SuiteDocument]:
+                   cleanup_budget: Optional[float] = None, document: Optional[str] = None,
+                   records: Optional[Dict[str, Any]] = None, use_list: bool = True) -> Optional[SuiteDocument]:
+        """Run ``command`` with its private transport files in one temp folder that is removed on every exit.
+
+        ``document`` names the expected output schema when it differs from the command word (``compare --plan``
+        prints ``videosuite-compare-plan/1``); ``records`` is a validated snapshot written to a private JSON file."""
         tmp = tempfile.mkdtemp(prefix="vsuite_")
         try:
-            list_file = os.path.join(tmp, "paths.txt")
-            with open(list_file, "w", encoding="utf-8", newline="\n") as fh:
-                fh.write("\n".join(paths) + "\n")
+            argv_files: List[str] = []
+            if use_list:
+                list_file = os.path.join(tmp, "paths.txt")
+                with open(list_file, "w", encoding="utf-8", newline="\n") as fh:
+                    fh.write("\n".join(paths) + "\n")
+                # An empty list is valid for plan/build only; passing its file would
+                # trigger the CLI's shared "give at least one file" validation.
+                argv_files = ["--list", list_file] if paths else []
             words = ["calibrate", command[len("calibrate-"):]] if command.startswith("calibrate-") else [command]
-            # An empty list is valid for plan/build only; passing its file would
-            # trigger the CLI's shared "give at least one file" validation.
-            argv = words + (["--list", list_file] if paths else []) + ["--json"] + extra
+            argv = words + argv_files + ["--json"] + extra
+            if records is not None:
+                records_file = os.path.join(tmp, "records.json")
+                with open(records_file, "wb") as fh:
+                    fh.write(_snapshot_bytes(records))
+                argv.append(f"--records={records_file}")
             outcome = self._run(command, argv, timeout, on_line=on_line, cancel=cancel,
                                 cleanup_budget=cleanup_budget)
             if outcome.reason == "cancel":
                 return None
-            return self._finish(command, outcome)
+            return self._finish(document or command, outcome)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

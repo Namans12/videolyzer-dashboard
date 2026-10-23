@@ -48,6 +48,27 @@ describe("rank result", () => {
     expect(within(block).getByText(unverifiedNotice(null)!)).toBeVisible(); expect(block).toHaveTextContent("Not compared (no picture data): No data.mkv");
     expect(screen.getByText("not compared")).toBeVisible();
   });
+  it("keeps the Advanced defaults and can hide the neutral table and put the chosen player first", () => {
+    const doc = rankDoc();
+    const first = render(<RankResult doc={doc} devices={devicesDoc()} />);
+    expect(screen.getByText("Picture quality (device-neutral)")).toBeVisible();
+    const defaults = Array.from(first.container.querySelectorAll(".suite-rank")).map(s => s.getAttribute("aria-label"));
+    expect(defaults.some(l => /^(Your|Alternative) player/.test(l ?? ""))).toBe(false);
+    first.unmount();
+    const { container } = render(<RankResult doc={rankDoc()} devices={devicesDoc()} showOverall={false} selectedPlayer="sony_bravia_8_ii/kodi" />);
+    expect(screen.queryByText("Picture quality (device-neutral)")).toBeNull();
+    const labels = Array.from(container.querySelectorAll(".suite-rank")).map(s => s.getAttribute("aria-label") ?? "");
+    expect(labels[0]).toMatch(/^Your player: .*Kodi on the TV/);
+    expect(labels.slice(1).every(l => l.startsWith("Alternative player: "))).toBe(true);
+    expect(labels).toHaveLength(Object.keys(doc.devices).length);
+  });
+  it("names legacy reports and shows playback ranges", () => {
+    const doc = rankDoc(); doc.legacy_reports = [{ name1: "A.mkv", name2: "B.mkv" }];
+    const d = doc.devices["sony_bravia_8_ii/kodi"]; d.ranking[0].score_range = [40, 80]; d.ranking[0].playback_score = 60;
+    render(<RankResult doc={doc} devices={null} />);
+    expect(screen.getByText("1 older report(s) could not be checked against the current files: A.mkv vs B.mkv")).toBeVisible();
+    expect(screen.getByRole("region", { name: "sony_bravia_8_ii/kodi" })).toHaveTextContent("60 (range 40-80)");
+  });
   it("renders hostile labels literally and unknown device keys", () => {
     const doc = rankDoc(); doc.quality[0].label = "<img src=x onerror=alert(1)>.mkv";
     const { container } = render(<RankResult doc={doc} devices={null} />);

@@ -1199,3 +1199,24 @@ def test_settings_request_guards(client, fake):
     assert response.status_code == 200 and response.headers["access-control-allow-origin"] == "http://localhost:5173"
     assert client.post("/suite/settings", content="x", headers={"Content-Type": "text/plain"}).status_code == 415
     assert client.post("/suite/settings", json={}).status_code == 405
+
+
+# ── Plan 4B U5: one lease object for a whole unified-run chain ───────────────────────
+
+def test_slot_lease_holds_until_released_and_release_is_idempotent():
+    lease = suite_routes.acquire_lease("compare")
+    assert suite_routes._slots.try_acquire("compare") == "a comparison is already running"
+    lease.release()
+    lease.release()                                      # a second release never frees another holder's slot
+    other = suite_routes.acquire_lease("compare")
+    lease.release()
+    assert suite_routes._slots.try_acquire("compare") == "a comparison is already running"
+    other.release()
+    quick = [suite_routes.acquire_lease("score_rank") for _ in range(suite_routes.MAX_SCORE_RANK_JOBS)]
+    with pytest.raises(suite_routes.HTTPException) as busy:
+        suite_routes.acquire_lease("score_rank")
+    assert busy.value.status_code == 409
+    for item in quick:
+        item.release()
+        item.release()
+    assert suite_routes._slots.try_acquire("score_rank") is None

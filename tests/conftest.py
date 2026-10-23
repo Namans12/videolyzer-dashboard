@@ -8,7 +8,9 @@ Rules (plan 2, "Test-harness rules"):
   creates it BEFORE any ``with TestClient(...)`` block, because ``lifespan``
   deletes every file in ``UPLOAD_DIR`` on startup. ``client`` depends on it.
 * ``clean_state`` clears the in-memory job store (later tasks extend it with the
-  ``/suite/devices`` cache and the port allocator).
+  ``/suite/devices`` cache and the port allocator, and Plan 4B U5 with the unified run store).
+* ``isolated_run_store`` points the unified run store's data root at ``tmp_path / "app"`` so no test can write
+  run folders into a real app-data directory.
 * TestClient runs BackgroundTasks to completion before the response returns, so
   HTTP tests assert final job states only.
 """
@@ -49,9 +51,17 @@ def isolated_uploads(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_run_store(tmp_path):
+    import comparison_runs
+    comparison_runs.store.configure(data_root=tmp_path / "app")
+    return comparison_runs.store
+
+
+@pytest.fixture(autouse=True)
 def clean_state():
     # The job store has no timers (retention is purged inside ``create``), so
     # there is nothing to patch: just start and end every test empty.
+    import comparison_runs
     import magnet
     import suite_client
     import suite_routes
@@ -73,6 +83,7 @@ def clean_state():
         suite_routes.reset_state()          # /suite/devices cache and job slots
         suite_client.reset_suite_client()
         suite_version.reset()
+        comparison_runs.store.reset()           # unified runs; keeps the per-test data root
 
     reset()
     yield reset

@@ -6,6 +6,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+NEW_BACKEND = {'app_host.py', 'app_lifecycle.py', 'app_routes.py', 'app_preflight.py',
+               'comparison_contracts.py', 'comparison_runs.py', 'comparison_routes.py',
+               'native_chooser.py', 'comparison_reports.py'}
 
 
 def local_import_closure(root, entries):
@@ -44,6 +47,11 @@ def test_payload_local_import_closure():
     required = local_import_closure(ROOT, ["main.py", "app_host.py"])
     assert "app_host.py" in required and "calibration_routes.py" in required
     assert {"app_lifecycle.py", "app_routes.py"} <= required
+    # Plan 4B U4: the unified contracts module enters the closure with its first import (suite_version).
+    assert {"comparison_contracts.py", "suite_version.py", "suite_client.py"} <= required
+    # Plan 4B U5: the run store and routes enter with main's route registration.
+    assert {"comparison_runs.py", "comparison_routes.py"} <= required
+    assert NEW_BACKEND <= required
     assert_payload(payload["files"], required)
     # Each omission, including the host itself, must fail this same assertion.
     for name in required:
@@ -76,9 +84,11 @@ def test_payload_imports_from_extracted_artifact(tmp_path):
                        ("TORCH_HOME", "torch"), ("HF_HOME", "hf"), ("CLIP_CACHE_DIR", "clip")):
         env[key] = str(scratch / value)
     code = ("import sys,pathlib;sys.path.insert(0,sys.argv[1]);"
-            "import main,app_routes,app_lifecycle;"
+            "import main,app_routes,app_lifecycle,comparison_contracts,suite_version,comparison_runs,comparison_routes;"
             "assert all(pathlib.Path(m.__file__).parent==pathlib.Path(sys.argv[1]) "
-            "for m in (main,app_routes,app_lifecycle));print('PASS extracted lifecycle imports')")
+            "for m in (main,app_routes,app_lifecycle,comparison_contracts,suite_version,comparison_runs,"
+            "comparison_routes));"
+            "print('PASS extracted lifecycle imports')")
     result = subprocess.run([sys.executable, "-I", "-B", "-c", code, str(extracted)],
         capture_output=True, text=True, timeout=10, env=env, creationflags=subprocess.CREATE_NO_WINDOW)
     assert result.returncode == 0, result.stderr
@@ -149,7 +159,11 @@ def test_payload_manifest_matches_frontend_backend_and_lock_hashes(exported):
         manifest = json.loads(archive.read('dashboard-manifest.json'))
         assert manifest['frontend'] == {'build_id': 'l6-test', 'entry': 'dist/index.html'}
         assert manifest['backend'] == {'build_id': 'l6-test', 'entry': 'app_host.py'}
-        assert manifest['source']['revision'] == '4ef0b36d004ba291f8d15c4d3768b09dabfe81e6'
+        # The exported artifact records the checkout's actual HEAD (not a revision pinned before the owner's commit).
+        import subprocess
+        head = subprocess.check_output(['git', '-C', str(ROOT), 'rev-parse', 'HEAD'], text=True,
+                                       env=dict(__import__('os').environ, GIT_OPTIONAL_LOCKS='0')).strip()
+        assert manifest['source']['revision'] == head
         assert set(archive.namelist()) == {r['path'] for r in manifest['files']} | {'dashboard-manifest.json'}
         for row in manifest['files']:
             data = archive.read(row['path'])
@@ -165,18 +179,21 @@ def test_payload_local_import_closure_and_extracted_backend_imports(exported, tm
     import sys
     import zipfile
     with zipfile.ZipFile(exported) as archive:
+        assert NEW_BACKEND <= set(archive.namelist())
         archive.extractall(tmp_path / 'extracted')
     root = tmp_path / 'extracted'
     payload = json.loads((root / 'app-payload.json').read_text())
     required = local_import_closure(root, ['main.py', 'app_host.py'])
-    assert {'app_host.py', 'app_lifecycle.py', 'app_routes.py', 'app_preflight.py'} <= required
+    assert {'app_host.py', 'app_lifecycle.py', 'app_routes.py', 'app_preflight.py', 'comparison_contracts.py',
+            'comparison_runs.py', 'comparison_routes.py'} <= required
     assert_payload(payload['files'], required)
+    assert NEW_BACKEND <= required
     for name in required:
         with pytest.raises(AssertionError):
             assert_payload([p for p in payload['files'] if p != name], required)
-    code = ("import sys,pathlib;sys.path.insert(0,sys.argv[1]);import main,app_host,app_preflight;"
+    code = ("import sys,pathlib;sys.path.insert(0,sys.argv[1]);import main,app_host,app_lifecycle,app_routes,app_preflight,comparison_contracts,comparison_runs,comparison_routes,native_chooser,comparison_reports;"
             "assert all(pathlib.Path(m.__file__).parent == pathlib.Path(sys.argv[1]) "
-            "for m in (main,app_host,app_preflight));"
+            "for m in (main,app_host,app_lifecycle,app_routes,app_preflight,comparison_contracts,comparison_runs,comparison_routes,native_chooser,comparison_reports));"
             "assert not any('Video Comparizer' in p or 'node_modules' in p for p in sys.path)")
     env = dict(os.environ)
     env.pop('PYTHONPATH', None)

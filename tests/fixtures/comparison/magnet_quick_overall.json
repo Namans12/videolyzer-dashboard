@@ -1,0 +1,465 @@
+{
+ "result": {
+  "completed_stages": [
+   "planning",
+   "facts",
+   "quick"
+  ],
+  "coverage": {
+   "complete": true,
+   "completed_pairs": 0,
+   "expected_pairs": 0,
+   "missing_pairs": 0,
+   "readable": 2,
+   "submitted": 2
+  },
+  "device": null,
+  "estimate": null,
+  "facts": [
+   {
+    "audio": [],
+    "claims": {
+     "claimed_audio": [],
+     "claimed_hdr": [],
+     "claimed_resolution": null,
+     "claimed_resolution_weak": false,
+     "release_name": "A.mkv",
+     "source_class": "unknown",
+     "source_class_spec": "unknown"
+    },
+    "container": {
+     "duration_s": 120.0,
+     "format": "matroska",
+     "overall_bitrate_kbps": 3,
+     "size_bytes": 40960
+    },
+    "facts_version": 2,
+    "hdr": {
+     "dolby_vision": {
+      "base_layer": null,
+      "el_present": null,
+      "el_type": "unknown",
+      "profile": null,
+      "status": "unknown",
+      "sub_profile": null
+     },
+     "formats": [],
+     "hdr10plus": {
+      "coverage": 0.0,
+      "status": "not_scanned"
+     },
+     "mastering": null,
+     "max_cll": null,
+     "max_fall": null,
+     "realism": {
+      "sustained_peak_nits": null,
+      "verdict": "not_measured"
+     }
+    },
+    "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+    "pixel_results": [],
+    "playback": {},
+    "schema": "media-record/1",
+    "source": {
+     "caveats": [
+      "only the start of the file was downloaded and probed",
+      "duration and bitrate come from the container header and are not verified",
+      "HDR10+ and Dolby Vision were read from the first frames only"
+     ],
+     "magnet": null,
+     "partial": true,
+     "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+     "probe_coverage": "head",
+     "probed_bytes": 512,
+     "real_name": "A.mkv",
+     "tools": {
+      "ffprobe": ""
+     }
+    },
+    "subtitles": [],
+    "verification": {
+     "flags": [],
+     "trust_score": 100,
+     "vetoes": []
+    },
+    "video": {
+     "bit_depth": 8,
+     "bitrate_kbps": 10000.0,
+     "bitrate_source": "stream",
+     "codec": "h264",
+     "fps": null,
+     "height": 1080,
+     "level": null,
+     "picture_height": null,
+     "picture_width": null,
+     "profile": null,
+     "width": 1920
+    }
+   },
+   {
+    "audio": [],
+    "claims": {
+     "claimed_audio": [],
+     "claimed_hdr": [],
+     "claimed_resolution": null,
+     "claimed_resolution_weak": false,
+     "release_name": "B.mkv",
+     "source_class": "unknown",
+     "source_class_spec": "unknown"
+    },
+    "container": {
+     "duration_s": 120.0,
+     "format": "matroska",
+     "overall_bitrate_kbps": 5,
+     "size_bytes": 81920
+    },
+    "facts_version": 2,
+    "hdr": {
+     "dolby_vision": {
+      "base_layer": null,
+      "el_present": null,
+      "el_type": "unknown",
+      "profile": null,
+      "status": "unknown",
+      "sub_profile": null
+     },
+     "formats": [],
+     "hdr10plus": {
+      "coverage": 0.0,
+      "status": "not_scanned"
+     },
+     "mastering": null,
+     "max_cll": null,
+     "max_fall": null,
+     "realism": {
+      "sustained_peak_nits": null,
+      "verdict": "not_measured"
+     }
+    },
+    "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+    "pixel_results": [],
+    "playback": {},
+    "schema": "media-record/1",
+    "source": {
+     "caveats": [
+      "only the start of the file was downloaded and probed",
+      "duration and bitrate come from the container header and are not verified",
+      "HDR10+ and Dolby Vision were read from the first frames only"
+     ],
+     "magnet": null,
+     "partial": true,
+     "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+     "probe_coverage": "head",
+     "probed_bytes": 512,
+     "real_name": "B.mkv",
+     "tools": {
+      "ffprobe": ""
+     }
+    },
+    "subtitles": [],
+    "verification": {
+     "flags": [],
+     "trust_score": 100,
+     "vetoes": []
+    },
+    "video": {
+     "bit_depth": 8,
+     "bitrate_kbps": 10000.0,
+     "bitrate_source": "stream",
+     "codec": "h264",
+     "fps": null,
+     "height": 1080,
+     "level": null,
+     "picture_height": null,
+     "picture_width": null,
+     "profile": null,
+     "width": 1920
+    }
+   }
+  ],
+  "failures": [],
+  "measurement": "metadata",
+  "overall": {
+   "coverage_complete": false,
+   "groups": [
+    {
+     "basis": {
+      "2e9929ac57d537af2a54a53d3c96d15af6fb4526": {
+       "known": {
+        "bitrate": true,
+        "hdr": false,
+        "lossless_audio": false,
+        "width": true
+       },
+       "metadata": [
+        1920,
+        0,
+        10000.0,
+        0
+       ],
+       "observed": {
+        "bitrate": 10000.0,
+        "hdr": [],
+        "lossless_audio": [],
+        "width": 1920
+       },
+       "verification": {
+        "flags": [],
+        "trust_score": 100,
+        "vetoes": []
+       }
+      },
+      "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9": {
+       "known": {
+        "bitrate": true,
+        "hdr": false,
+        "lossless_audio": false,
+        "width": true
+       },
+       "metadata": [
+        1920,
+        0,
+        10000.0,
+        0
+       ],
+       "observed": {
+        "bitrate": 10000.0,
+        "hdr": [],
+        "lossless_audio": [],
+        "width": 1920
+       },
+       "verification": {
+        "flags": [],
+        "trust_score": 100,
+        "vetoes": []
+       }
+      }
+     },
+     "ids": [
+      "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9"
+     ],
+     "limitations": [
+      "unknown hdr",
+      "unknown lossless_audio",
+      "only the start of the file was downloaded and probed",
+      "duration and bitrate come from the container header and are not verified",
+      "HDR10+ and Dolby Vision were read from the first frames only",
+      "An earlier discriminating fact is unknown; no ordering is established within this group."
+     ],
+     "rank": null,
+     "status": "insufficient"
+    }
+   ],
+   "winner_ids": []
+  },
+  "provenance": {
+   "build_id": null,
+   "engine_tag": "562ab353",
+   "facts_version": 2,
+   "records_digest": "436d737d323d846b647b12d9d7ecf9ee661c97a114581351a21a74184915f31c",
+   "rules_versions": {},
+   "settings_digest": null,
+   "tool_version": "0.7.0"
+  },
+  "reports": [],
+  "request": {
+   "audio_output": null,
+   "depth": "quick",
+   "device": null,
+   "fs": null,
+   "include_alternatives": true,
+   "input_kind": "magnets",
+   "lang": "eng",
+   "magnets": [
+    {
+     "file_index": 0,
+     "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+    },
+    {
+     "file_index": 1,
+     "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+    }
+   ],
+   "player": null,
+   "primary_player": null,
+   "results": "overall"
+  },
+  "run_id": "run-0001",
+  "schema": "videosuite-comparison-run/1",
+  "snapshot": {
+   "candidates": [
+    {
+     "candidate_id": "c0",
+     "entries": [
+      {
+       "index": 0,
+       "name": "A.mkv",
+       "size": 40960
+      }
+     ],
+     "file_index": 0,
+     "kind": "magnet",
+     "mtime_ns": null,
+     "path": null,
+     "reason": null,
+     "record_id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+     "size": 40960,
+     "status": "ready",
+     "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+    },
+    {
+     "candidate_id": "c1",
+     "entries": [
+      {
+       "index": 1,
+       "name": "B.mkv",
+       "size": 81920
+      }
+     ],
+     "file_index": 1,
+     "kind": "magnet",
+     "mtime_ns": null,
+     "path": null,
+     "reason": null,
+     "record_id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+     "size": 81920,
+     "status": "ready",
+     "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+    }
+   ],
+   "conditions": {
+    "audio_output": null,
+    "device": null,
+    "evaluated_players": [],
+    "fs": null,
+    "lang": "eng",
+    "player": null,
+    "primary_player": null,
+    "settings_digest": null
+   },
+   "created_at": 1700000000.0,
+   "estimate": null,
+   "job_id": "00000000000000000000000000000003",
+   "plan_revision": "rev-302aa61015d20d93",
+   "records_digest": "436d737d323d846b647b12d9d7ecf9ee661c97a114581351a21a74184915f31c",
+   "request": {
+    "audio_output": null,
+    "depth": "quick",
+    "device": null,
+    "fs": null,
+    "include_alternatives": true,
+    "input_kind": "magnets",
+    "lang": "eng",
+    "magnets": [
+     {
+      "file_index": 0,
+      "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+     },
+     {
+      "file_index": 1,
+      "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+     }
+    ],
+    "player": null,
+    "primary_player": null,
+    "results": "overall"
+   },
+   "run_id": "run-0001",
+   "stage": "done",
+   "versions": {
+    "engine_tag": "562ab353",
+    "facts_version": 2,
+    "rules_versions": {},
+    "tool_version": "0.7.0"
+   }
+  }
+ },
+ "run": {
+  "candidates": [
+   {
+    "candidate_id": "c0",
+    "entries": [
+     {
+      "index": 0,
+      "name": "A.mkv",
+      "size": 40960
+     }
+    ],
+    "file_index": 0,
+    "kind": "magnet",
+    "mtime_ns": null,
+    "path": null,
+    "reason": null,
+    "record_id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+    "size": 40960,
+    "status": "ready",
+    "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+   },
+   {
+    "candidate_id": "c1",
+    "entries": [
+     {
+      "index": 1,
+      "name": "B.mkv",
+      "size": 81920
+     }
+    ],
+    "file_index": 1,
+    "kind": "magnet",
+    "mtime_ns": null,
+    "path": null,
+    "reason": null,
+    "record_id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+    "size": 81920,
+    "status": "ready",
+    "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+   }
+  ],
+  "conditions": {
+   "audio_output": null,
+   "device": null,
+   "evaluated_players": [],
+   "fs": null,
+   "lang": "eng",
+   "player": null,
+   "primary_player": null,
+   "settings_digest": null
+  },
+  "created_at": 1700000000.0,
+  "estimate": null,
+  "job_id": "00000000000000000000000000000003",
+  "plan_revision": "rev-302aa61015d20d93",
+  "records_digest": "436d737d323d846b647b12d9d7ecf9ee661c97a114581351a21a74184915f31c",
+  "request": {
+   "audio_output": null,
+   "depth": "quick",
+   "device": null,
+   "fs": null,
+   "include_alternatives": true,
+   "input_kind": "magnets",
+   "lang": "eng",
+   "magnets": [
+    {
+     "file_index": 0,
+     "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+    },
+    {
+     "file_index": 1,
+     "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+    }
+   ],
+   "player": null,
+   "primary_player": null,
+   "results": "overall"
+  },
+  "run_id": "run-0001",
+  "stage": "done",
+  "versions": {
+   "engine_tag": "562ab353",
+   "facts_version": 2,
+   "rules_versions": {},
+   "tool_version": "0.7.0"
+  }
+ }
+}

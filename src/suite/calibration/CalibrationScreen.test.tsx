@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { CalibrationScreen } from "./CalibrationScreen";
@@ -334,6 +335,46 @@ it.each([
   render(<CalibrationScreen />);
   await waitFor(() => expect(button("HDR banner T01")).toBeEnabled());
   expect(screen.queryByText(/New kit/)).toBeNull();
+});
+
+// ── Plan 4B U9: Calibration sits beside Compare; its state survives navigation (mounted while hidden) ──
+const vetoPreview = () => ({ ...previewDoc(), changes: [{ ...previewDoc().changes[0], action: "veto", veto: true }] });
+function Navigable() {
+  const [hidden, setHidden] = useState(false);
+  return <><button type="button" onClick={() => setHidden(h => !h)}>Switch screens</button>
+    <div hidden={hidden}><CalibrationScreen /></div></>;
+}
+it("preserves Calibration state preview invalidation veto confirmation report and undo behind navigation", async () => {
+  const fetch = installFetch(url => {
+    if (url === API + "/suite/version" || url === API + "/suite/version?refresh=true") return jsonResponse(200, capable());
+    if (url === API + "/suite/settings" || url === API + "/suite/settings?refresh=true") return jsonResponse(200, settings());
+    if (url === API + "/suite/calibration/status") return jsonResponse(200, statusDoc());
+    if (url === API + "/suite/calibration/apply") return jsonResponse(200, vetoPreview());
+    return unexpectedFetch(url);
+  });
+  render(<Navigable />);
+  await waitFor(() => expect(button("HDR banner T01")).toBeEnabled());
+  fireEvent.click(button("Preview changes"));
+  expect(await screen.findByText("Preview revision: r1")).toBeVisible();
+  fireEvent.click(screen.getByRole("checkbox", { name: /I checked the veto for T01/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Confirm veto for T01/ }));
+  expect(screen.getByText(/Veto confirmed for T01 .* on this preview\./)).toBeVisible();
+  expect(screen.getByText(/new Compare runs use the updated device rules/)).toBeVisible();
+  const calls = fetch.mock.calls.length;
+  for (let i = 0; i < 3; i += 1) {
+    fireEvent.click(button("Switch screens"));
+    expect(screen.queryByRole("button", { name: "Preview changes" })).toBeNull();     // hidden, still mounted
+    fireEvent.click(button("Switch screens"));
+  }
+  expect(screen.getByText("Preview revision: r1")).toBeVisible();
+  expect(screen.getByText(/Veto confirmed for T01 .* on this preview\./)).toBeVisible();
+  expect(button("Apply")).toBeEnabled();
+  expect(button("What changed")).toBeEnabled();
+  expect(button("Undo this kit")).toBeInTheDocument();
+  expect(fetch.mock.calls.length).toBe(calls);                                          // nothing refetched or reset
+  // a settings re-check still invalidates the preview made under the old settings
+  fireEvent.click(button("Check settings again"));
+  await waitFor(() => expect(screen.queryByText("Preview revision: r1")).toBeNull());
 });
 
 it("tolerates storage that throws for the pending kit", async () => {

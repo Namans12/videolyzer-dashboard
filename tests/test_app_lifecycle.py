@@ -98,3 +98,17 @@ def test_hanging_cancel_callback_is_bounded_and_retained():
     finally:
         release.set()
         workers.wait_all(.2)
+
+
+def test_unified_plan_and_run_jobs_are_in_the_busy_census_and_stop_cancels_them():
+    store = JobStore()
+    life = AppLifecycle(store, WorkerRegistry(), grace_s=.01, force_s=.01)
+    plan = store.create("comparison_plan", run_id="run-1")
+    run = store.create("comparison_run", run_id="run-2")
+    assert {j["kind"] for j in life.active_jobs()} == {"comparison_plan", "comparison_run"}
+    assert not life.request_quit("when_finished")["active_jobs"] == []
+    assert not life.ready_to_quit()
+    life.request_quit("stop")
+    assert store.is_cancelled(plan) and store.is_cancelled(run)
+    with pytest.raises(RuntimeError, match="shutting down"):
+        store.create("comparison_plan")

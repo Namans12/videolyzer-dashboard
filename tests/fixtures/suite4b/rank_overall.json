@@ -1,0 +1,87 @@
+{
+ "schema": "videosuite-rank/1",
+ "tool_version": "0.7.0",
+ "quality": [
+  {
+   "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+   "games": 2,
+   "margin": 3.8,
+   "quality_score": 59.5,
+   "rank": 1,
+   "label": "A.mkv"
+  },
+  {
+   "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+   "games": 2,
+   "margin": 0.0,
+   "quality_score": 50.0,
+   "rank": 2,
+   "label": "B.mkv"
+  },
+  {
+   "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+   "games": 2,
+   "margin": -3.8,
+   "quality_score": 40.5,
+   "rank": 3,
+   "label": "C.mkv"
+  }
+ ],
+ "same_picture_groups": [
+  [
+   "A.mkv"
+  ],
+  [
+   "C.mkv"
+  ],
+  [
+   "B.mkv"
+  ]
+ ],
+ "not_compared": [],
+ "missing_pairs": [],
+ "weights": {
+  "quality": 0.5,
+  "playback": 0.5
+ },
+ "devices": {},
+ "stale_reports": [],
+ "legacy_reports": [],
+ "head_to_head_conflicts": [],
+ "settings": null,
+ "results": "overall",
+ "selection": "all",
+ "candidates": [
+  {
+   "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+   "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+   "status": "ready",
+   "reason": null,
+   "size": 4096,
+   "mtime_ns": 1700000000000000000
+  },
+  {
+   "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+   "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+   "status": "ready",
+   "reason": null,
+   "size": 8192,
+   "mtime_ns": 1700000000000000001
+  },
+  {
+   "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+   "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+   "status": "ready",
+   "reason": null,
+   "size": 12288,
+   "mtime_ns": 1700000000000000002
+  }
+ ],
+ "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+ "coverage": {
+  "expected_pairs": 3,
+  "scheduled_pairs": 3,
+  "completed_pairs": 3,
+  "missing_pairs": 0
+ }
+}

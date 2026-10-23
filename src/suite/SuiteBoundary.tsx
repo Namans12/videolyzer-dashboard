@@ -12,7 +12,7 @@ export class SuiteBoundary extends Component<{ children: ReactNode; label?: stri
   render() {
     if (this.state.hasError) {
       return <div role="alert">
-        <p>{this.props.label ?? "The Suite screen"} hit an unexpected error. Use the Analyze tab, or reload the page.</p>
+        <p>{this.props.label ?? "The Suite screen"} hit an unexpected error. Use Advanced &gt; Analyze, or reload the page.</p>
         <button type="button" onClick={() => this.setState({ hasError: false })}>Try again</button>
       </div>;
     }

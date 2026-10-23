@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { API } from "../config";
 import { compareDoc, devicesDoc, legacyVideo, rankDoc, scoreDoc, scorePartialDoc, scoreRecord, suiteSettings } from "./fixtures";
+import {
+  asQuickDocument, compareAllDoc, comparePlanDoc, quickBothDoc, quickDeviceDoc, quickJustPlayerAlternativesDoc,
+  quickOverallDoc, quickPartialDoc, rankDeviceDoc, rankOverallDoc, version4bDoc, versionInfo07,
+} from "./fixtures";
 import { bodyOf, callsTo, installFetch, jsonResponse, takeUnexpectedFetches, unexpectedFetch } from "./fetchMock";
 import { EVIDENCE_WORDS, VERDICTS } from "../types";
+import { asQuickDocument as appQuickGuard } from "../../compare/types";
 
 describe("real VideoSuite fixtures", () => {
   it("contains the score fields consumed by the UI", () => {
@@ -175,5 +180,74 @@ describe("fetch test helpers", () => {
 describe("legacy fixture helper", () => {
   it("returns the old dashboard video shape", () => {
     expect(legacyVideo().path).toBe("D:\\Media\\clip.mkv");
+  });
+});
+
+describe("real Plan 4B VideoSuite fixtures", () => {
+  it("are VideoSuite 0.7.0 documents with the unified capabilities", () => {
+    expect(version4bDoc().tool_version).toBe("0.7.0");
+    const info = versionInfo07();
+    for (const capability of ["compare_all", "compare_plan", "neutral_only", "record_snapshot", "quick_recommendations",
+      "calibration", "offline_payload"]) {
+      expect(info.capabilities).toContain(capability);
+    }
+    expect(comparePlanDoc().schema).toBe("videosuite-compare-plan/1");
+    expect(compareAllDoc().coverage).toEqual({ expected_pairs: 3, scheduled_pairs: 3, completed_pairs: 3, missing_pairs: 0 });
+    expect(rankOverallDoc().devices).toEqual({});
+    expect(Object.keys(rankDeviceDoc().devices)).toEqual([
+      "sony_bravia_8_ii/builtin_usb", "sony_bravia_8_ii/kodi", "sony_bravia_8_ii/just_player",
+    ]);
+  });
+
+  it("keeps the Just Player primary and the alternatives partition through the fixture guard", () => {
+    const doc = quickJustPlayerAlternativesDoc();
+    expect(doc.selected).toEqual({ device: "sony_bravia_8_ii", player: "just_player" });
+    expect(Object.keys(doc.devices)).toEqual(["sony_bravia_8_ii/builtin_usb", "sony_bravia_8_ii/kodi", "sony_bravia_8_ii/just_player"]);
+    expect(doc.alternatives.map((a) => [a.device, a.player])).toEqual([
+      ["sony_bravia_8_ii", "builtin_usb"], ["sony_bravia_8_ii", "kodi"],
+    ]);
+    for (const alternative of doc.alternatives) {
+      expect(alternative.order).toEqual(doc.devices[`${alternative.device}/${alternative.player}`]);
+      for (const group of alternative.order.groups) {
+        for (const row of Object.values(group.basis)) {
+          expect(EVIDENCE_WORDS).toContain((row.playback as { evidence: string }).evidence);
+        }
+      }
+    }
+  });
+
+  it("labels every Quick document as metadata and never carries measured scores", () => {
+    for (const doc of [quickOverallDoc(), quickDeviceDoc(), quickBothDoc(), quickPartialDoc()]) {
+      expect(doc.measurement).toBe("metadata");
+      expect(JSON.stringify([doc.overall, doc.devices, doc.alternatives])).not.toMatch(/quality_score|device_score/);
+    }
+    expect(quickOverallDoc().devices).toEqual({});
+    expect(quickDeviceDoc().overall).toBeNull();
+    expect(quickPartialDoc().overall?.winner_ids).toEqual([]);
+    const tampered = JSON.parse(JSON.stringify(quickBothDoc())) as Record<string, unknown>;
+    ((tampered.overall as { groups: Array<Record<string, unknown>> }).groups[0]).quality_score = 80;
+    expect(() => asQuickDocument(tampered)).toThrow(/measured score/);
+    const extra = { ...quickBothDoc(), future_suite_key: { kept: true } };
+    expect(asQuickDocument(extra)).toBe(extra);
+  });
+
+  it("returns independent Plan 4B clones", () => {
+    const first = quickBothDoc();
+    first.selected.player = "kodi";
+    expect(quickBothDoc().selected.player).toBe("just_player");
+  });
+
+  it("narrows Quick fixtures with the same guard the Compare screen uses", () => {
+    expect(asQuickDocument).toBe(appQuickGuard);
+    const doc = quickJustPlayerAlternativesDoc();
+    (doc.alternatives[0] as { player: unknown }).player = 5;
+    expect(() => asQuickDocument(doc)).toThrow(/device\/player identity/);
+  });
+
+  it("preserves the emitted single-player Both selection", () => {
+    const doc = quickBothDoc();
+    expect(Object.keys(doc.devices)).toEqual(["sony_bravia_8_ii/just_player"]);
+    expect(doc.alternatives).toEqual([]);
+    expect(doc.records.every((r) => (r.hdr as { formats: string[] }).formats.length === 0)).toBe(true);
   });
 });

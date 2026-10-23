@@ -3,11 +3,16 @@ import logging
 import re
 import threading
 import time
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
+from comparison_contracts import require_capabilities
 from suite_client import SuiteError, SuiteUnavailable, get_suite_client
 
 MIN_SUITE_VERSION = "0.3.0"
+# Plan 4B unified comparison: gated on capabilities, never on the folder existing. A suite without them keeps the
+# Suite/Advanced and Calibration features (MIN_SUITE_VERSION is unchanged); only the unified flow is refused.
+UNIFIED_MIN_VERSION = "0.7.0"
+UNIFIED_CAPABILITIES = ("compare_all", "compare_plan", "neutral_only", "record_snapshot", "quick_recommendations")
 CACHE_SECONDS = 300.0
 FAILURE_CACHE_SECONDS = 10.0
 ENV_STARTUP_CHECK = "VIDEOLYZER_SUITE_STARTUP_CHECK"
@@ -111,6 +116,14 @@ def ensure(client: Any, refresh: bool = False) -> Dict[str, Any]:
         _stored = check(client)
         _stored_at = _now()
         return _stored
+
+
+def require_unified(client: Any, requested: Sequence[str] = UNIFIED_CAPABILITIES,
+                    refresh: bool = False) -> Dict[str, Any]:
+    """The cached handshake when it lists every unified capability, else ``CapabilityError`` (update hint)."""
+    info = ensure(client, refresh=refresh)
+    require_capabilities(info, requested)
+    return info
 
 
 def cached() -> Optional[Dict[str, Any]]:

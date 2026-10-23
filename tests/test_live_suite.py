@@ -112,3 +112,33 @@ def test_live_score_partial(tmp_path):
     doc = client.score_partial(str(partial), real_size=len(full), real_name="Tom & Jerry (2021) 100%.mkv")
     assert doc["records"][0]["source"]["partial"] is True
     assert doc.exit_code == 0
+
+
+def test_live_unified_plan_and_quick_on_one_generated_clip(tmp_path):
+    """Plan 4B: the real suite plans a run (facts only, no output folder) and answers Quick from the same snapshot."""
+    import suite_version
+    from comparison_contracts import CapabilityError
+    client = _suite_client(tmp_path)
+    try:
+        suite_version.require_unified(client, refresh=True)
+    except CapabilityError as exc:
+        pytest.skip(f"the installed suite has no unified capabilities: {exc}")
+    ffmpeg = _find_ffmpeg(client)
+    if ffmpeg is None:
+        pytest.skip("ffmpeg not found on PATH or in the suite folder")
+    clips = []
+    for name, crf in (("live a&b.mkv", 20), ("live 100%.mkv", 30)):
+        clip = tmp_path / name
+        subprocess.run([ffmpeg, "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=1",
+                        "-c:v", "libx264", "-crf", str(crf), "-pix_fmt", "yuv420p", str(clip)],
+                       stdin=subprocess.DEVNULL, capture_output=True, timeout=120, check=True, shell=False)
+        clips.append(str(clip))
+    out = tmp_path / "reports"
+    plan = client.plan_compare(clips, str(out), results="overall")
+    assert plan["schema"] == "videosuite-compare-plan/1" and plan["estimate"]["pairs"] == 1
+    assert not out.exists()
+    snapshot = {k: plan[k] for k in ("records", "candidates", "records_digest")}
+    snapshot.update(schema="videosuite-record-snapshot/1", facts_version=plan["records"][0]["facts_version"])
+    quick = client.quick(snapshot, results="overall")
+    assert quick["measurement"] == "metadata"
+    assert [r["id"] for r in quick["records"]] == [r["id"] for r in plan["records"]]

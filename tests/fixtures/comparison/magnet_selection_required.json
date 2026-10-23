@@ -1,0 +1,100 @@
+{
+ "result": null,
+ "run": {
+  "candidates": [
+   {
+    "candidate_id": "c0",
+    "entries": [
+     {
+      "index": 0,
+      "name": "A.mkv",
+      "size": 40960
+     },
+     {
+      "index": 2,
+      "name": "C.mkv",
+      "size": 122880
+     }
+    ],
+    "file_index": null,
+    "kind": "magnet",
+    "mtime_ns": null,
+    "path": null,
+    "reason": "Choose one video entry for this link.",
+    "record_id": null,
+    "size": null,
+    "status": "selection_required",
+    "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+   },
+   {
+    "candidate_id": "c1",
+    "entries": [
+     {
+      "index": 1,
+      "name": "B.mkv",
+      "size": 81920
+     },
+     {
+      "index": 2,
+      "name": "C.mkv",
+      "size": 122880
+     }
+    ],
+    "file_index": null,
+    "kind": "magnet",
+    "mtime_ns": null,
+    "path": null,
+    "reason": "Choose one video entry for this link.",
+    "record_id": null,
+    "size": null,
+    "status": "selection_required",
+    "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+   }
+  ],
+  "conditions": {
+   "audio_output": null,
+   "device": null,
+   "evaluated_players": [],
+   "fs": null,
+   "lang": "eng",
+   "player": null,
+   "primary_player": null,
+   "settings_digest": null
+  },
+  "created_at": 1700000000.0,
+  "estimate": null,
+  "job_id": "00000000000000000000000000000001",
+  "plan_revision": "rev-302aa61015d20d93",
+  "records_digest": null,
+  "request": {
+   "audio_output": null,
+   "depth": "quick",
+   "device": null,
+   "fs": null,
+   "include_alternatives": true,
+   "input_kind": "magnets",
+   "lang": "eng",
+   "magnets": [
+    {
+     "file_index": null,
+     "uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+    },
+    {
+     "file_index": null,
+     "uri": "magnet:?xt=urn:btih:abcdef0123456789abcdef0123456789abcdef01"
+    }
+   ],
+   "player": null,
+   "primary_player": null,
+   "results": "overall"
+  },
+  "run_id": "run-0001",
+  "stage": "selection_required",
+  "versions": {
+   "engine_tag": "562ab353",
+   "facts_version": 2,
+   "rules_versions": {},
+   "tool_version": "0.7.0"
+  }
+ }
+}

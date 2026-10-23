@@ -19,6 +19,10 @@ import { SuiteBoundary } from "./suite/SuiteBoundary";
 import { CalibrationScreen } from "./suite/calibration/CalibrationScreen";
 import { MagnetSuiteBlock } from "./suite/MagnetSuiteBlock";
 import { AppConnection } from "./app/AppControls";
+import { CompareScreen } from "./compare/CompareScreen";
+import { DevicesInfo } from "./devices/DevicesInfo";
+import { getDevices } from "./suite/api";
+import type { DevicesDocument } from "./suite/types";
 
 // ── Magnet link icon (reusable) ──────────────────────────────────────────────
 // Renders the same SVG used in the magnet input field, wrapped in an <a>
@@ -291,15 +295,54 @@ function cleanFileName(name: string): string {
   return name.replace(/^[0-9a-f]{32}_/i, "");
 }
 
-type AppTab = "analyze" | "suite" | "calibration";
-const TABS: readonly AppTab[] = ["analyze", "suite", "calibration"];
+// Plan 4B: Compare is home; Calibration (TV), read-only Devices info and Advanced sit beside it. The old Analyze and
+// Suite screens are Advanced's own sub-tabs; a legacy stored "analyze"/"suite" opens that sub-tab under Advanced.
+type AppTab = "compare" | "calibration" | "devices" | "advanced";
+type AdvancedView = "analyze" | "suite";
+const TABS: readonly AppTab[] = ["compare", "calibration", "devices", "advanced"];
+const VIEWS: readonly AdvancedView[] = ["analyze", "suite"];
 const TAB_KEY = "active_tab";
-function readStoredTab(): AppTab {
+const VIEW_KEY = "advanced_view";
+function readStoredTabs(): { tab: AppTab; view: AdvancedView } {
   try {
     const stored = localStorage.getItem(TAB_KEY);
-    return stored === "suite" || stored === "calibration" ? stored : "analyze";
+    const view: AdvancedView = localStorage.getItem(VIEW_KEY) === "suite" ? "suite" : "analyze";
+    if (stored === "analyze" || stored === "suite") return { tab: "advanced", view: stored };
+    if (stored === "calibration" || stored === "devices" || stored === "advanced") return { tab: stored, view };
+    return { tab: "compare", view };
   }
-  catch { return "analyze"; }
+  catch { return { tab: "compare", view: "analyze" }; }
+}
+function storeTabs(tab: AppTab, view: AdvancedView): void {
+  try { localStorage.setItem(TAB_KEY, tab); localStorage.setItem(VIEW_KEY, view); } catch { /* not persisted */ }
+}
+/** Arrow keys, Home and End move the selection and focus along one tablist (a roving tab stop). */
+function rovingKey<T extends string>(key: string, list: readonly T[], current: T): T | null {
+  const index = list.indexOf(current);
+  if (key === "Home") return list[0];
+  if (key === "End") return list[list.length - 1];
+  if (key === "ArrowRight") return list[(index + 1) % list.length];
+  if (key === "ArrowLeft") return list[(index + list.length - 1) % list.length];
+  return null;
+}
+const TAB_LABELS: Record<AppTab, string> = { compare: "Compare", calibration: "Calibration (TV)", devices: "Devices info", advanced: "Advanced" };
+const VIEW_LABELS: Record<AdvancedView, string> = { analyze: "Analyze", suite: "Suite (all devices)" };
+
+/** Devices info loads the live catalogue each time it is shown (after Calibration the rules version may change). */
+function DevicesTab({ visible }: { visible: boolean }) {
+  const [state, setState] = useState<{ loaded: boolean; devices: DevicesDocument | null }>({ loaded: false, devices: null });
+  useEffect(() => {
+    if (!visible) return;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      getDevices(ctrl.signal)
+        .then(devices => { if (!ctrl.signal.aborted) setState({ loaded: true, devices }); })
+        .catch(() => { if (!ctrl.signal.aborted) setState(s => ({ loaded: true, devices: s.devices })); });
+    }, 0);
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [visible]);
+  if (!state.loaded) return <p role="status" className="app-tab-loading">Loading the device list…</p>;
+  return <DevicesInfo devices={state.devices} />;
 }
 
 class ResultErrorBoundary extends React.Component<
@@ -799,14 +842,27 @@ export default function App() {
   useEffect(() => {
     try { localStorage.setItem("last_results", JSON.stringify(data)); } catch { /* not persisted */ }
   }, [data]);
-  const [activeTab, setActiveTab] = useState<AppTab>(readStoredTab);
-  const [suiteOpened, setSuiteOpened] = useState<boolean>(() => readStoredTab() === "suite");
-  const [calibrationOpened, setCalibrationOpened] = useState<boolean>(() => readStoredTab() === "calibration");
+  const [activeTab, setActiveTab] = useState<AppTab>(() => readStoredTabs().tab);
+  const [advancedView, setAdvancedView] = useState<AdvancedView>(() => readStoredTabs().view);
+  // Each screen mounts on first use and then stays mounted while hidden (running work and answers survive navigation).
+  const [opened, setOpened] = useState<Record<AppTab, boolean>>(() => {
+    const first = readStoredTabs().tab;
+    return { compare: first === "compare", calibration: first === "calibration", devices: first === "devices", advanced: true };
+  });
+  const [suiteOpened, setSuiteOpened] = useState<boolean>(() => {
+    const first = readStoredTabs();
+    return first.tab === "advanced" && first.view === "suite";
+  });
   const selectTab = (tab: AppTab) => {
     setActiveTab(tab);
-    if (tab === "suite") setSuiteOpened(true);
-    if (tab === "calibration") setCalibrationOpened(true);
-    try { localStorage.setItem(TAB_KEY, tab); } catch { /* not persisted */ }
+    setOpened(o => (o[tab] ? o : { ...o, [tab]: true }));
+    if (tab === "advanced" && advancedView === "suite") setSuiteOpened(true);
+    storeTabs(tab, advancedView);
+  };
+  const selectView = (view: AdvancedView) => {
+    setAdvancedView(view);
+    if (view === "suite") setSuiteOpened(true);
+    storeTabs("advanced", view);
   };
   const abortRef = useRef(false);
   const [jobId,       setJobId]       = useState<string | null>(null);
@@ -1343,7 +1399,7 @@ export default function App() {
       {/* ── Nav ─────────────────────────────────────────────────────────── */}
       <nav className="top-nav">
         <div className="nav-links">
-          {activeTab === "analyze" && <>
+          {activeTab === "advanced" && advancedView === "analyze" && <>
           <a href="#analyze">Analyze</a>
           {showDashboard && <a href="#dashboard">Dashboard</a>}
           {showDashboard && <a href="#tv-usb">TV &amp; USB</a>}
@@ -1356,29 +1412,39 @@ export default function App() {
       <AppConnection />
 
       <div className="app-tabs" role="tablist" aria-label="Screens" onKeyDown={event => {
-        let next: AppTab;
-        const index = TABS.indexOf(activeTab);
-        if (event.key === "Home") next = TABS[0];
-        else if (event.key === "End") next = TABS[TABS.length - 1];
-        else if (event.key === "ArrowRight") next = TABS[(index + 1) % TABS.length];
-        else if (event.key === "ArrowLeft") next = TABS[(index + TABS.length - 1) % TABS.length];
-        else return;
+        const next = rovingKey(event.key, TABS, activeTab);
+        if (next === null) return;
         event.preventDefault();
         selectTab(next);
         document.getElementById(`tab-${next}`)?.focus();
       }}>
-        <button type="button" role="tab" id="tab-analyze" aria-controls="panel-analyze" aria-selected={activeTab === "analyze"}
-                tabIndex={activeTab === "analyze" ? 0 : -1}
-                className={`app-tab ${activeTab === "analyze" ? "app-tab-active" : ""}`} onClick={() => selectTab("analyze")}>Analyze</button>
-        <button type="button" role="tab" id="tab-suite" aria-controls="panel-suite" aria-selected={activeTab === "suite"}
-                tabIndex={activeTab === "suite" ? 0 : -1}
-                className={`app-tab ${activeTab === "suite" ? "app-tab-active" : ""}`} onClick={() => selectTab("suite")}>Suite (all devices)</button>
-        <button type="button" role="tab" id="tab-calibration" aria-controls="panel-calibration" aria-selected={activeTab === "calibration"}
-                tabIndex={activeTab === "calibration" ? 0 : -1}
-                className={`app-tab ${activeTab === "calibration" ? "app-tab-active" : ""}`} onClick={() => selectTab("calibration")}>Calibration (TV)</button>
+        {TABS.map(tab => <button key={tab} type="button" role="tab" id={`tab-${tab}`} aria-controls={`panel-${tab}`}
+                                 aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1}
+                                 className={`app-tab ${activeTab === tab ? "app-tab-active" : ""}`}
+                                 onClick={() => selectTab(tab)}>{TAB_LABELS[tab]}</button>)}
       </div>
 
-      <div id="panel-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden={activeTab !== "analyze"}>
+      {opened.compare && <div id="panel-compare" role="tabpanel" aria-labelledby="tab-compare" hidden={activeTab !== "compare"}><SuiteBoundary label="The Compare screen"><CompareScreen /></SuiteBoundary></div>}
+      {opened.calibration && <div id="panel-calibration" role="tabpanel" aria-labelledby="tab-calibration" hidden={activeTab !== "calibration"}><SuiteBoundary label="The Calibration screen"><CalibrationScreen /></SuiteBoundary></div>}
+      {opened.devices && <div id="panel-devices" role="tabpanel" aria-labelledby="tab-devices" hidden={activeTab !== "devices"}><SuiteBoundary label="The Devices info screen"><DevicesTab visible={activeTab === "devices"} /></SuiteBoundary></div>}
+
+      <div id="panel-advanced" role="tabpanel" aria-labelledby="tab-advanced" hidden={activeTab !== "advanced"}>
+      <p className="app-advanced-note">Advanced keeps the older tools: Analyze (single files, folders and magnet links with
+        the legacy Bravia view) and Suite (all devices, with the limited fast shortlist). Compare is the main screen.</p>
+      <div className="app-tabs app-subtabs" role="tablist" aria-label="Advanced tools" onKeyDown={event => {
+        const next = rovingKey(event.key, VIEWS, advancedView);
+        if (next === null) return;
+        event.preventDefault();
+        selectView(next);
+        document.getElementById(`tab-${next}`)?.focus();
+      }}>
+        {VIEWS.map(view => <button key={view} type="button" role="tab" id={`tab-${view}`} aria-controls={`panel-${view}`}
+                                   aria-selected={advancedView === view} tabIndex={advancedView === view ? 0 : -1}
+                                   className={`app-tab ${advancedView === view ? "app-tab-active" : ""}`}
+                                   onClick={() => selectView(view)}>{VIEW_LABELS[view]}</button>)}
+      </div>
+
+      <div id="panel-analyze" role="tabpanel" aria-labelledby="tab-analyze" hidden={advancedView !== "analyze"}>
 
       {/* ── Hero ────────────────────────────────────────────────────────── */}
       <section id="analyze" className="hero-section">
@@ -2370,8 +2436,8 @@ export default function App() {
         </details>
       </section>
       </div>
-      {suiteOpened && <div id="panel-suite" role="tabpanel" aria-labelledby="tab-suite" hidden={activeTab !== "suite"}><SuiteBoundary><SuiteScreen /></SuiteBoundary></div>}
-      {calibrationOpened && <div id="panel-calibration" role="tabpanel" aria-labelledby="tab-calibration" hidden={activeTab !== "calibration"}><SuiteBoundary label="The Calibration screen"><CalibrationScreen /></SuiteBoundary></div>}
+      {suiteOpened && <div id="panel-suite" role="tabpanel" aria-labelledby="tab-suite" hidden={advancedView !== "suite"}><SuiteBoundary><SuiteScreen /></SuiteBoundary></div>}
+      </div>
     </div>
   );
 }

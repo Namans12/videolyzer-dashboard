@@ -322,3 +322,11 @@ def test_concurrent_creates_get_distinct_ids():
 
 def test_module_exports_a_shared_store():
     assert isinstance(jobs.jobs, JobStore)
+
+
+def test_event_wall_clock_is_injectable_for_deterministic_envelopes():
+    store = JobStore()
+    store._wall = lambda: 1700000000.0
+    job_id = store.create("comparison_run")
+    store.append_event(job_id, "Planning")
+    assert store.get(job_id)["events"] == [{"msg": "Planning", "ts": 1700000000.0}]

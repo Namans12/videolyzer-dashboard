@@ -183,6 +183,21 @@ def _check_occupied_port_launcher(monkeypatch, tmp_path, inject_effect=None):
     monkeypatch.setattr(launcher, "SupervisorJob", lambda: SimpleNamespace(
         assign=lambda process: False, close=lambda: events.append("job-closed")))
 
+    class Tree:
+        """Fake of the launcher's verified process tree (venv redirector layout): a PID
+        that is not the launched child or its verified descendant is refused."""
+        def __init__(self, process):
+            self.members = {process.pid: process}
+        def discover(self): pass
+        def verify(self, pid, created):
+            if pid not in self.members:
+                raise ValueError("readiness PID is outside launched process tree")
+            return self.members[pid]
+        def close(self):
+            return []
+
+    monkeypatch.setattr(launcher, "ProcessTree", Tree)
+
     def spawn(*args):
         bound = app_host.bind_loopback()
         assert bound is sockets[-1]

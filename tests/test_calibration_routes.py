@@ -1182,7 +1182,7 @@ def test_cancel_route_kills_a_running_calibration_cli_and_ends_the_job_cancelled
     else:
         t = start_in_thread(mod.run_calibration_report_job, job_id, real, KIT, videos)
     assert started.wait(10)
-    assert argvs[0][:4] == ["PY", "-m", "videosuite", "calibrate"] and argvs[0][4] == kind
+    assert argvs[0][:5] == ["PY", "-B", "-m", "videosuite", "calibrate"] and argvs[0][5] == kind
     assert client.post(f"/job/{job_id}/cancel").status_code == 200           # the real cancel route
     t.join(15)
     assert not t.is_alive()
@@ -1275,3 +1275,14 @@ def test_a_running_job_cancelled_by_the_route_ends_cancelled_even_if_the_client_
 
     routes_module().run_calibration_build_job(job_id, FakeClient(calibrate_build=go), videos, str(tmp_path / "k"), [], [])
     assert jobs_module.jobs.get(job_id)["status"] == "cancelled"
+
+
+def test_a_unified_full_run_lease_blocks_calibration_build(client, fake, videos, tmp_path):
+    lease = suite_routes.acquire_lease("compare")
+    try:
+        spec = bodies(videos, tmp_path)["build"]
+        response = call(client, spec)
+        assert response.status_code == 409
+        assert no_jobs()
+    finally:
+        lease.release()

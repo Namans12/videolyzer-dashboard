@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   apiErrorKind, cancelJob, errorSentence, getDevices, getJob, getSettings, getVersion,
-  postCompare, postRank, postScore, request, startJob, SuiteApiError,
+  postCompare, postJson, postRank, postScore, request, startJob, SuiteApiError,
 } from "./api";
 import { API } from "./config";
 import { bodyOf, callsTo, installFetch, jsonResponse, unexpectedFetch } from "./testing/fetchMock";
@@ -191,6 +191,17 @@ describe("suite HTTP client", () => {
     expect(init?.headers).toBeUndefined();
     expect(init?.body).toBeUndefined();
     expect(init?.signal).toBe(signal);
+  });
+
+  it("posts a JSON object and returns the parsed answer for the unified run routes", async () => {
+    const signal = new AbortController().signal;
+    const fetch = installFetch((url) => url === `${API}/comparison/runs/run-1/cancel`
+      ? jsonResponse(200, { run_id: "run-1", stage: "cancelled" }) : unexpectedFetch(url));
+    await expect(postJson("/comparison/runs/run-1/cancel", {}, signal)).resolves.toEqual({ run_id: "run-1", stage: "cancelled" });
+    const [[, init]] = callsTo(fetch, "/comparison/runs/run-1/cancel");
+    expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", signal });
+    installFetch((url) => url === `${API}/comparison/plans` ? jsonResponse(422, { detail: "invalid run request" }) : unexpectedFetch(url));
+    await expect(postJson("/comparison/plans", { paths })).rejects.toMatchObject({ status: 422, kind: "validation", detail: "invalid run request" });
   });
 
   it("formats a conflict sentence", () => {

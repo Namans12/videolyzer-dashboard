@@ -239,3 +239,39 @@ def test_readme_documents_version_and_startup_switch():
     text = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
     assert "/suite/version" in text
     assert "VIDEOLYZER_SUITE_STARTUP_CHECK" in text
+
+
+PART1_CAPABILITIES = ["devices", "version", "device_quality", "best_player", "guards", "settings", "score_partial",
+                      "pair_progress", "calibration", "offline_payload"]
+
+
+def test_missing_new_capability_preserves_advanced_and_calibration(client):
+    """A Part 1 (0.6.0) suite keeps Suite/Advanced and Calibration; only the unified flow is gated."""
+    import comparison_contracts
+    fake = VersionClient("0.6.0")
+    fake.version = lambda: {"tool_version": "0.6.0", "capabilities": PART1_CAPABILITIES, "engine_tag": "562ab353",
+                            "schemas": {"version": "videosuite-version/1"}}
+    result = suite_version.ensure(fake)
+    assert result["status"] == "ok" and "calibration" in result["capabilities"]
+    comparison_contracts.require_capabilities(result, ["calibration"])
+    comparison_contracts.require_capabilities(result, ["devices", "score_partial"])
+    with pytest.raises(comparison_contracts.CapabilityError) as error:
+        suite_version.require_unified(fake)
+    assert error.value.missing == list(suite_version.UNIFIED_CAPABILITIES)
+    assert "0.7.0" in str(error.value)
+    # The handshake route still reports ok for the Advanced/Calibration screens.
+    main.app.dependency_overrides[suite_routes.get_suite_client] = lambda: fake
+    body = client.get("/suite/version").json()
+    assert body["status"] == "ok" and body["tool_version"] == "0.6.0"
+
+
+def test_unified_capabilities_match_the_real_070_handshake():
+    import json
+    from pathlib import Path
+    doc = json.loads((Path(__file__).parent / "fixtures" / "suite4b" / "version.json").read_text(encoding="utf-8"))
+    fake = VersionClient(doc["tool_version"])
+    fake.version = lambda: doc
+    info = suite_version.require_unified(fake)
+    assert info["tool_version"] == suite_version.UNIFIED_MIN_VERSION == "0.7.0"
+    assert set(suite_version.UNIFIED_CAPABILITIES) <= set(info["capabilities"])
+    assert info["capabilities"][:len(PART1_CAPABILITIES)] == PART1_CAPABILITIES

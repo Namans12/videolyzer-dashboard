@@ -36,6 +36,14 @@ CALIBRATION_ROUTES = {
     "/suite/calibration/undo",
     "/suite/calibration/report",
 }
+# Added by Plan 4B task U5 (comparison_routes.py): the unified run API.
+COMPARISON_ROUTES = {
+    "/comparison/plans",
+    "/comparison/runs",
+    "/comparison/runs/{run_id}",
+    "/comparison/runs/{run_id}/cancel",
+    "/comparison/runs/{run_id}/reports/{report_id}",
+}
 FRAMEWORK_ROUTES = {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
 
 
@@ -54,11 +62,12 @@ def test_app_has_its_twelve_own_routes():
         else:
             paths.add(getattr(r, "path", None))
     paths -= FRAMEWORK_ROUTES
-    app_controls = {"/app/quit", "/app/open-log"}
-    assert paths - SUITE_ROUTES - CALIBRATION_ROUTES - app_controls == EXPECTED_ROUTES
+    app_controls = {"/app/quit", "/app/open-log", "/app/choose-files"}
+    assert paths - SUITE_ROUTES - CALIBRATION_ROUTES - COMPARISON_ROUTES - app_controls == EXPECTED_ROUTES
     assert SUITE_ROUTES <= paths
     assert CALIBRATION_ROUTES <= paths
-    assert paths == EXPECTED_ROUTES | SUITE_ROUTES | CALIBRATION_ROUTES | app_controls
+    assert COMPARISON_ROUTES <= paths
+    assert paths == EXPECTED_ROUTES | SUITE_ROUTES | CALIBRATION_ROUTES | COMPARISON_ROUTES | app_controls
     assert len(EXPECTED_ROUTES) == 12 and len(CALIBRATION_ROUTES) == 8
 
 

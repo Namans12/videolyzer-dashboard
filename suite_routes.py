@@ -478,6 +478,35 @@ def _take_slot(slot: str) -> None:
         raise HTTPException(status_code=409, detail=detail)
 
 
+class SlotLease:
+    """One held slot for a whole multi-stage chain (Plan 4B: a Full run's compare AND rank share one heavy lease).
+
+    ``release`` is idempotent: a second call never frees a slot that another holder took afterwards."""
+
+    def __init__(self, slot: str) -> None:
+        self.slot = slot
+        self._lock = threading.Lock()
+        self._released = False
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        _slots.release(self.slot)
+
+    @property
+    def released(self) -> bool:
+        with self._lock:
+            return self._released
+
+
+def acquire_lease(slot: str) -> SlotLease:
+    """Take ``slot`` atomically (409 with the usual busy detail) and return its lease."""
+    _take_slot(slot)
+    return SlotLease(slot)
+
+
 def _start(slot: str, kind: str, total: int, background_tasks: BackgroundTasks, runner: Callable[..., None],
            *args: Any, **kwargs: Any) -> Dict[str, str]:
     _take_slot(slot)

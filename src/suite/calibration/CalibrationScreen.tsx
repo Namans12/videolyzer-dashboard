@@ -104,11 +104,12 @@ export function CalibrationScreen() {
   return <div className="suite-screen calibration-screen">
     <h2>Calibration (TV)</h2>
     <p className="suite-muted">Play the kit's test files on the TV, answer what you see, then apply the answers to your owner settings. VideoSuite stores every answer.</p>
+    <p className="suite-muted">After you apply or undo, new Compare runs use the updated device rules; earlier results keep the rules they were made with. Calibration never changes the measured picture scores.</p>
     <SuiteStatusBanner state={version} checking={checking} onRecheck={recheck} />
     {version.kind === "loaded" && version.info.status === "ok" && !available
       && <div role="status" className="suite-banner suite-banner-warn calibration-gate">
         <p>{CALIBRATION_UPDATE_TEXT}</p>
-        <p>The Suite tab keeps working with the installed VideoSuite.</p>
+        <p>The Suite view under Advanced keeps working with the installed VideoSuite.</p>
       </div>}
     {available && <CalibrationWorkspace settings={settings} settingsError={settingsError} checking={checking} onRecheck={recheck}
       onRegisterInvalidate={registerInvalidate} />}

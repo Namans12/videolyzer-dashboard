@@ -1,0 +1,288 @@
+{
+ "schema": "videosuite-compare/1",
+ "tool_version": "0.7.0",
+ "mode": "accurate",
+ "estimate": {
+  "pairs": 3,
+  "minutes": 45
+ },
+ "shortlist": [
+  "A.mkv",
+  "B.mkv",
+  "C.mkv"
+ ],
+ "dropped": [],
+ "pairs": [
+  {
+   "a": "A.mkv",
+   "b": "B.mkv",
+   "report": "<SCRATCH>\\reports\\A_vs_B_accurate_f5fe396524.json"
+  },
+  {
+   "a": "A.mkv",
+   "b": "C.mkv",
+   "report": "<SCRATCH>\\reports\\A_vs_C_accurate_abc3e912ff.json"
+  },
+  {
+   "a": "B.mkv",
+   "b": "C.mkv",
+   "report": "<SCRATCH>\\reports\\B_vs_C_accurate_6650ead451.json"
+  }
+ ],
+ "failed": 0,
+ "settings": null,
+ "results": "overall",
+ "selection": "all",
+ "records": [
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+   "source": {
+    "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": ""
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 4096,
+    "duration_s": 120.0,
+    "overall_bitrate_kbps": 0
+   },
+   "video": {
+    "codec": "h264",
+    "profile": null,
+    "level": null,
+    "width": 1920,
+    "height": 1080,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": null,
+    "bit_depth": 8,
+    "bitrate_kbps": 10000.0,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "A.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {},
+   "pixel_results": []
+  },
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+   "source": {
+    "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": ""
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 8192,
+    "duration_s": 120.0,
+    "overall_bitrate_kbps": 1
+   },
+   "video": {
+    "codec": "h264",
+    "profile": null,
+    "level": null,
+    "width": 1920,
+    "height": 1080,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": null,
+    "bit_depth": 8,
+    "bitrate_kbps": 10000.0,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "B.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {},
+   "pixel_results": []
+  },
+  {
+   "schema": "media-record/1",
+   "facts_version": 2,
+   "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+   "source": {
+    "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+    "magnet": null,
+    "probe_coverage": "full",
+    "tools": {
+     "ffprobe": ""
+    }
+   },
+   "container": {
+    "format": "matroska",
+    "size_bytes": 12288,
+    "duration_s": 120.0,
+    "overall_bitrate_kbps": 1
+   },
+   "video": {
+    "codec": "h264",
+    "profile": null,
+    "level": null,
+    "width": 1920,
+    "height": 1080,
+    "picture_width": null,
+    "picture_height": null,
+    "fps": null,
+    "bit_depth": 8,
+    "bitrate_kbps": 10000.0,
+    "bitrate_source": "stream"
+   },
+   "hdr": {
+    "formats": [],
+    "mastering": null,
+    "max_cll": null,
+    "max_fall": null,
+    "hdr10plus": {
+     "status": "not_scanned",
+     "coverage": 0.0
+    },
+    "dolby_vision": {
+     "status": "unknown",
+     "profile": null,
+     "sub_profile": null,
+     "base_layer": null,
+     "el_present": null,
+     "el_type": "unknown"
+    },
+    "realism": {
+     "verdict": "not_measured",
+     "sustained_peak_nits": null
+    }
+   },
+   "audio": [],
+   "subtitles": [],
+   "claims": {
+    "release_name": "C.mkv",
+    "source_class": "unknown",
+    "source_class_spec": "unknown",
+    "claimed_hdr": [],
+    "claimed_audio": [],
+    "claimed_resolution": null,
+    "claimed_resolution_weak": false
+   },
+   "verification": {
+    "trust_score": 100,
+    "flags": [],
+    "vetoes": []
+   },
+   "playback": {},
+   "pixel_results": []
+  }
+ ],
+ "candidates": [
+  {
+   "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+   "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+   "status": "ready",
+   "reason": null,
+   "size": 4096,
+   "mtime_ns": 1700000000000000000
+  },
+  {
+   "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+   "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+   "status": "ready",
+   "reason": null,
+   "size": 8192,
+   "mtime_ns": 1700000000000000001
+  },
+  {
+   "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+   "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+   "status": "ready",
+   "reason": null,
+   "size": 12288,
+   "mtime_ns": 1700000000000000002
+  }
+ ],
+ "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+ "failures": [],
+ "coverage": {
+  "expected_pairs": 3,
+  "scheduled_pairs": 3,
+  "completed_pairs": 3,
+  "missing_pairs": 0
+ }
+}

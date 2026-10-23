@@ -1,0 +1,9 @@
+{
+  "schema": "videosuite-supported-devices/1",
+  "note": "Plan 4B release data: the fixed supported devices in priority order. Players, rules and catalogue labels come from /suite/devices.",
+  "devices": [
+    { "id": "sony_bravia_8_ii", "label": "Sony Bravia 8 II (TV)" },
+    { "id": "vivobook_pro_16x", "label": "ASUS Vivobook Pro 16X (laptop)" },
+    { "id": "galaxy_tab_s9_ultra", "label": "Galaxy Tab S9 Ultra (tablet)" }
+  ]
+}

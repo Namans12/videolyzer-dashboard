@@ -40,6 +40,16 @@ describe("legacy polling terminal outcomes", () => {
     vi.useFakeTimers();
     // Vitest globals are disabled, so RTL cannot register its act-environment hook.
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    // The legacy Analyze screen now lives under Advanced; the old stored tab value opens it there.
+    localStorage.setItem("active_tab", "analyze");
+  });
+
+  it("opens the legacy Analyze tools under Advanced for an owner who used them last", () => {
+    installFetch(unexpectedFetch);
+    render(<App />);
+    expect(screen.getByRole("tab", { name: "Advanced" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Analyze" })).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById("video-path")).toBeVisible();
   });
 
   it.each([

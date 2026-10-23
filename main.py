@@ -31,6 +31,7 @@ import suite_version
 import suite_client
 import magnet
 import magnet_suite
+import comparison_runs
 from path_guard import (
     PathRejected, iter_safe_video_files, make_file_filter, validate_user_path,
 )
@@ -96,6 +97,10 @@ def _patch_result_path(result: dict, temp_path: str, orig_name: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Packaged app_identity comes from the launcher's verified release.json.
+    identity = getattr(app.state, 'app_identity', None) or {}
+    comparison_runs.store.configure(build_id=identity.get('build_id'))
+    comparison_runs.store.cleanup_orphans()
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     log_dir = os.path.join(os.path.dirname(UPLOAD_DIR), "logs")
     os.makedirs(log_dir, exist_ok=True)
@@ -137,7 +142,9 @@ async def admission_error(request: Request, exc: RuntimeError):
 
 class MaxBodySizeMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
-        if not lifecycle.can_start_work() and request.url.path in (
+        # Work-creating requests are refused; a reconnecting browser still lists runs (GET /comparison/runs).
+        reading_runs = request.method == "GET" and request.url.path == "/comparison/runs"
+        if not lifecycle.can_start_work() and not reading_runs and request.url.path in (
             "/analysis/", "/analyze-multiple/", "/analyze-path/", "/scan-folder/",
             "/magnet/", "/compare-magnets/", "/suite/score", "/suite/rank", "/suite/compare",
             "/suite/calibration/plan", "/suite/calibration/build", "/suite/calibration/record",
@@ -164,6 +171,11 @@ configure_origin(app, "http://127.0.0.1:8000", development=True)
 
 # /suite/... (devices, score, rank, compare): the installed VideoSuite as guarded jobs.
 suite_routes.install(app)
+
+# /comparison/... (Plan 4B): backend-owned unified runs (plan -> confirm -> stage chain).
+import comparison_routes  # noqa: E402
+
+comparison_routes.install(app)
 
 
 def install_magnet_scorer() -> None:

@@ -27,8 +27,11 @@ offline installer; Quick/metadata remain available within their own requirements
 L5 also verifies required model hashes before pixel work, with no downloads or
 substitute metrics. Preflight probes use the tracked/stopping-gated run_tool helper;
 Stop cannot admit a later probe and running probes participate in cancellation.
-Optional magnet-only OpenSSL loss keeps file checks available; missing private
-`libtorrent.cp311-win_amd64.pyd` blocks release. System32 OpenSSL is checked,
+Optional magnet-only OpenSSL loss keeps file checks available; a missing private
+cp311 libtorrent binary blocks release. The approved wheel installs it as the
+package file `Lib\site-packages\libtorrent\__init__.cp311-win_amd64.pyd`; a flat
+`libtorrent.cp311-win_amd64.pyd` is the only other accepted layout
+(`app_preflight.packaged_libtorrent`). System32 OpenSSL is checked,
 never bundled/installed, and restricted disposable cp311 imports prove the payload.
 Packaged magnet actions report exactly: "Magnet links are unavailable on this PC
 (OpenSSL 1.1 files not found); file comparison still works". They provide no
@@ -49,7 +52,7 @@ backend log paths and the full build pipeline are documented in README.md.
 
 ## 1. Principles
 
-- The Dashboard never imports the Comparizer engine. It starts `python -m videosuite <command> --json`.
+- The Dashboard never imports the Comparizer engine. It starts `python -B -m videosuite <command> --json` with an explicit `PYTHONDONTWRITEBYTECODE=1` environment override to preserve the sealed release.
 - Never a `.bat`: `cmd.exe` would re-parse the arguments (`&`, `%`, `^`, `"` in a path would reach the shell) and killing it would leave the real process running. A launcher that is a `.bat`/`.cmd`, `cmd`, `powershell`, `pwsh`, `wscript` or `cscript` (in any disguise: trailing dots or spaces, `::$DATA`) is refused.
 - File paths never appear in the argument list: they travel in a UTF-8 `--list` file (one path per line) inside a private temporary folder that is removed afterwards. The remaining values are validated first; the two folder values (`reports_dir`, `out_dir`) may not contain `& ^ % ! " ' < > |` or control characters.
 - The child runs in the suite root with `PYTHONUTF8=1`, `PYTHONIOENCODING=utf-8`, `PYTHONNOUSERSITE=1`, `PYTHONSAFEPATH=1`, `PYTHONPATH=<root>`; every other inherited `PYTHON*` variable is dropped. The suite's `tools\bin` and `ffmpeg\bin` (if present) are put in front of PATH.
@@ -492,6 +495,37 @@ job failure is logged, nonfatal, and leaves only the shutdown cleanup; crash cle
 is best effort in that case. Under thread exhaustion, injected killers must
 return promptly when run inline. With failed termination and no available cleanup
 thread, an active daemon reader's pipe may remain pending EOF/garbage collection.
+
+## Unified comparison runs (Plan 4B)
+
+The Compare screen drives backend-owned runs through `/comparison/plans`
+(`RunRequest` in, `{job_id, run_id}` out; the run waits in `awaiting_confirmation`, or
+`selection_required` when a magnet link has several videos), `/comparison/runs`
+(confirm `{run_id, plan_revision}` exactly once; `GET` lists public snapshots),
+`/comparison/runs/{run_id}` (`{run, result}`) and `/comparison/runs/{run_id}/cancel`.
+The result is `videosuite-comparison-run/1`; its nested `overall`/`device` documents
+are the untouched suite documents: a QuickOrder or `videosuite-quick/1` for Quick and
+`videosuite-rank/1` for Full. The frontend narrows them by the result's measurement and
+never treats Quick as a rank document. Suite calls receive the owner's chosen player
+as `--primary-player` and the evaluation selection as `--player` (`all` with
+alternatives); Overall passes neither and loads no profiles or settings.
+
+Public snapshots never contain `reports_dir`; the frontend guards refuse it anywhere.
+Nested suite documents may carry `settings.path` (the run-owned settings copy); the UI
+never displays it or links to it, and reports are reached only through their opaque
+`/comparison/runs/{run_id}/reports/{report_id}` URLs. Provenance `build_id` comes from
+the launcher's verified installed `release.json` identity, or is null without it.
+Changed settings or device rules end a run `settings_changed`: no device answer,
+verified pair reports kept, and a fresh run uses the new rules. Both retains its
+independent Overall answer and complete coverage when all evidence is complete,
+even though the run/job is in error for the device answer. Cancellation, missing
+evidence and tool/engine/facts-version changes still suppress a whole-set answer.
+
+All `/comparison/` POSTs require JSON content type. Before re-checking edited
+choices, cancel that screen's previous pending plan with the existing cancel route
+and await its response; no global pending-plan cancellation affects other tabs.
+`estimate.pairs` counts scheduled readable pairs; `coverage.expected_pairs` counts
+all submitted pairs. See README for bounded, marked-only 30-day orphan retention.
 
 ## 7. Testing
 

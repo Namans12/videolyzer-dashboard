@@ -251,6 +251,20 @@ def _load_libtorrent():
     return lt
 
 
+def _wait_storage_alert(session, handle, name, cancel_check, timeout=10):
+    """Synchronize async storage changes before piece overrides or disk reads."""
+    deadline = time.monotonic() + timeout
+    while True:
+        if cancel_check():
+            raise RuntimeError('Cancelled')
+        for alert in session.pop_alerts():
+            if type(alert).__name__ == name and alert.handle == handle:
+                return
+        if time.monotonic() >= deadline:
+            raise TimeoutError('Torrent storage did not become ready for partial facts')
+        time.sleep(.05)
+
+
 def _classify_file(name: str, size: int) -> dict[str, Any]:
     base = os.path.basename(name).lower()
     ext = os.path.splitext(base)[1]
@@ -401,6 +415,11 @@ def fetch_magnet_metadata(
     listen_port: int = 6881,
     enable_hdr10plus: bool = False,
     _control=None,
+    *,
+    partial_scorer: PartialScorer | None = None,
+    use_default_scorer: bool = True,
+    selected_file_index: int | None = None,
+    metadata_only: bool = False,
 ) -> dict[str, Any]:
     """Download torrent metadata + a small header slice of each video file,
     then run ffprobe for real codec/HDR/audio results.
@@ -410,7 +429,9 @@ def fetch_magnet_metadata(
 
     Always tears down the libtorrent session and removes the temp directory.
     """
-    scorer = _partial_scorer
+    scorer = partial_scorer if partial_scorer is not None else (_partial_scorer if use_default_scorer else None)
+    if not use_default_scorer:
+        skip_dovi_scan, enable_hdr10plus = True, False
     lt = _load_libtorrent()
     emit = emit or (lambda _msg: None)
     cancel_check = cancel_check or (lambda: False)
@@ -441,6 +462,10 @@ def fetch_magnet_metadata(
         try:
             params = lt.parse_magnet_uri(magnet_uri)
             params.save_path = workdir
+            if not use_default_scorer or metadata_only:
+                # Fetch metadata while forbidding payload pieces. Explicit priorities below
+                # are the only pieces a unified Quick run may request.
+                params.flags |= lt.torrent_flags.upload_mode
             # storage_mode_sparse: tell libtorrent to create files only as
             # pieces arrive, not pre-allocate. On Linux this is enough; on
             # Windows we additionally mark each file FILE_ATTRIBUTE_SPARSE_FILE
@@ -488,12 +513,24 @@ def fetch_magnet_metadata(
         video_indexes: list[int] = []
         for i in range(num_files):
             f_path = files.file_path(i)
+            if (os.path.isabs(f_path) or ':' in f_path or
+                    any(p in ('..', '') for p in re.split(r'[/\\]', f_path)) or
+                    any(ord(c) < 32 for c in f_path)):
+                raise ValueError('Unsafe torrent entry path')
             f_size = files.file_size(i)
             rec = file_record(i, f_path, f_size)
             file_records.append(rec)
             if rec["verdict"] == "good":
                 video_indexes.append(i)
 
+        if metadata_only or (not use_default_scorer and selected_file_index is None and len(video_indexes) > 1):
+            return {"torrent_name": torrent_name, "info_hash": info_hash, "files": file_records, "analyses": []}
+        if selected_file_index is not None:
+            if selected_file_index not in video_indexes:
+                raise ValueError("Selected entry is not a playable video file")
+            video_indexes = [selected_file_index]
+        if not use_default_scorer:
+            video_indexes = video_indexes[:8]
         if not video_indexes:
             emit("No playable video files in this torrent.")
             return {
@@ -505,8 +542,15 @@ def fetch_magnet_metadata(
 
         # File priorities ≥1 so libtorrent allocates storage and writes pieces to disk.
         # Non-video files stay at 0 (skipped entirely).
-        file_priorities = [1 if i in set(video_indexes) else 0 for i in range(num_files)]
+        file_priorities = [(1 if i in set(video_indexes) else 0)
+                           for i in range(num_files)]
         handle.prioritize_files(file_priorities)
+        if not use_default_scorer:
+            # A priority-0 file's bytes may live only in the partfile. Keep the
+            # selected file writable, then override piece priorities AFTER the
+            # asynchronous file-priority reset has completed, still in upload_mode.
+            _wait_storage_alert(session, handle, 'file_prio_alert', cancel_check)
+            handle.prioritize_pieces([0] * torrent_info.num_pieces())
 
         # CRITICAL on Windows/NTFS: pre-create each prioritized video file
         # as empty and mark it FILE_ATTRIBUTE_SPARSE_FILE before libtorrent
@@ -565,6 +609,8 @@ def fetch_magnet_metadata(
         for p in priority_pieces:
             handle.piece_priority(p, 7)
             handle.set_piece_deadline(p, 2000)
+        if not use_default_scorer:
+            handle.unset_flags(lt.torrent_flags.upload_mode)
 
         deadline = time.time() + PIECE_TIMEOUT_S
         while True:
@@ -578,6 +624,11 @@ def fetch_magnet_metadata(
                      "Running ffprobe on what arrived.")
                 break
             time.sleep(0.5)
+
+        if not use_default_scorer:
+            # have_piece does not promise disk-cache visibility to another reader.
+            handle.flush_cache()
+            _wait_storage_alert(session, handle, 'cache_flushed_alert', cancel_check)
 
         # Probe phase gets a budget scaled by the number of video files so a
         # large season pack isn't killed mid-probe. We always probe the first
@@ -617,6 +668,21 @@ def fetch_magnet_metadata(
             need_tail = ext_lower in (".mp4", ".m2ts")
             probe_path: str | None = None
             try:
+                if not use_default_scorer:
+                    # Unified Quick never calls legacy analysis/ranking. Retain only the bounded
+                    # head (or head/tail sparse source) while this call's facts callback runs.
+                    if not need_tail:
+                        probe_path = local_path + ".__probe__" + ext_lower
+                        with open(local_path, "rb") as src, open(probe_path, "wb") as dst:
+                            dst.write(src.read(HEAD_BYTES))
+                    entries.append({"key": rec["name"], "path": local_path if need_tail else probe_path,
+                                    "real_size": real_size, "real_name": suite_real_name(rec["name"]),
+                                    "coverage": "head_tail" if need_tail else "head"})
+                    if probe_path:
+                        kept.add(probe_path)
+                    analyses.append({"path": rec["name"], "file": suite_real_name(rec["name"]),
+                                     "magnet_partial": True})
+                    continue
                 # For MP4/M2TS we probe local_path directly. libtorrent has
                 # already written the head + tail pieces (priority 7) and left
                 # the middle as sparse zeros. MediaInfo sees the real file size
@@ -797,7 +863,11 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
                             emit: Callable[[str], None],
                             cancel_check: Callable[[], bool],
                             listen_port: int = 6881,
-                            enable_hdr10plus: bool = False) -> dict[str, Any]:
+                            enable_hdr10plus: bool = False, *,
+                            partial_scorer: PartialScorer | None = None,
+                            use_default_scorer: bool = True,
+                            selected_file_index: int | None = None,
+                            metadata_only: bool = False) -> dict[str, Any]:
     """Wrapper that runs fetch_magnet_metadata with a hard outer timeout.
 
     The inner function now self-bounds every phase — metadata wait, piece
@@ -823,6 +893,8 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
                 listen_port=listen_port,
                 enable_hdr10plus=enable_hdr10plus,
                 _control=control,
+                partial_scorer=partial_scorer, use_default_scorer=use_default_scorer,
+                selected_file_index=selected_file_index, metadata_only=metadata_only,
             )
         except BaseException as e:  # noqa: BLE001
             error_holder[0] = e
@@ -838,7 +910,7 @@ def run_magnet_job_threaded(magnet_uri: str, skip_dovi_scan: bool,
                                    force=control.cancel, job_id=proc_guard.owner_id())
         t.start()
     t.join(timeout=METADATA_TIMEOUT_S + PIECE_TIMEOUT_S + PROBE_MAX_S + 30
-           + (SUITE_STAGE_MAX_S if _partial_scorer is not None else 0))
+           + (SUITE_STAGE_MAX_S if partial_scorer is not None or (use_default_scorer and _partial_scorer is not None) else 0))
     if t.is_alive():
         # Stop network activity immediately, then give the worker its cleanup
         # budget. Retain its identity if native teardown cannot be completed.

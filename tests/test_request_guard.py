@@ -17,6 +17,15 @@ import main
 UI = "http://localhost:5173"
 
 
+@pytest.mark.parametrize('path', ['/comparison/plans', '/comparison/runs', '/comparison/runs/run-x/cancel'])
+@pytest.mark.parametrize('content_type', [None, 'text/plain', 'application/x-www-form-urlencoded'])
+def test_comparison_posts_require_json_before_route_work(client, path, content_type):
+    headers = {} if content_type is None else {'content-type': content_type}
+    response = client.post(path, content='{}', headers=headers)
+    assert response.status_code == 415
+    assert len(main._jobs) == 0
+
+
 def cors_origin(resp):
     return resp.headers.get("access-control-allow-origin")
 

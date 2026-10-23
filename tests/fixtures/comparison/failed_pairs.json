@@ -1,0 +1,1878 @@
+{
+ "job": {
+  "current": "",
+  "error": "1 comparison pair(s) failed",
+  "error_kind": "failed_pairs",
+  "events": [
+   {
+    "msg": "Comparing every pair of 3 file(s) (accurate)",
+    "ts": 1700000000.0
+   },
+   {
+    "msg": "Ranking",
+    "ts": 1700000000.0
+   },
+   {
+    "msg": "Error: 1 comparison pair(s) failed",
+    "ts": 1700000000.0
+   }
+  ],
+  "kind": "comparison_run",
+  "progress": "0/1",
+  "results": {
+   "completed_stages": [
+    "planning",
+    "facts",
+    "pixels",
+    "rank"
+   ],
+   "coverage": {
+    "complete": false,
+    "completed_pairs": 2,
+    "expected_pairs": 3,
+    "missing_pairs": 1,
+    "readable": 3,
+    "submitted": 3
+   },
+   "device": {
+    "candidates": [
+     {
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "mtime_ns": 1700000000000000000,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "reason": null,
+      "size": 4096,
+      "status": "ready"
+     },
+     {
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "mtime_ns": 1700000000000000001,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "reason": null,
+      "size": 8192,
+      "status": "ready"
+     },
+     {
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "mtime_ns": 1700000000000000002,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "reason": null,
+      "size": 12288,
+      "status": "ready"
+     }
+    ],
+    "coverage": {
+     "completed_pairs": 3,
+     "expected_pairs": 3,
+     "missing_pairs": 0,
+     "scheduled_pairs": 3
+    },
+    "devices": {
+     "sony_bravia_8_ii/builtin_usb": {
+      "crossing": 9.5,
+      "crossing_note": "A.mkv leads on picture (quality 60 vs 50); B.mkv would only move ahead if its playback score were 10 points higher than A.mkv's (now +0).",
+      "format_credit_removed": [],
+      "not_compared": [],
+      "quality_basis": "neutral",
+      "ranking": [
+       {
+        "device_rank": 1,
+        "device_score": 58.8,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "official",
+        "games": 2,
+        "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+        "label": "A.mkv",
+        "neutral_quality_rank": 1,
+        "neutral_quality_score": 59.5,
+        "playback_score": 58.0,
+        "quality_rank": 1,
+        "quality_score": 59.5,
+        "ranking_score": 58.75,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         58.0,
+         58.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 2,
+        "device_score": 54.0,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "official",
+        "games": 2,
+        "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+        "label": "B.mkv",
+        "neutral_quality_rank": 2,
+        "neutral_quality_score": 50.0,
+        "playback_score": 58.0,
+        "quality_rank": 2,
+        "quality_score": 50.0,
+        "ranking_score": 54.0,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         58.0,
+         58.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 3,
+        "device_score": 49.2,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "official",
+        "games": 2,
+        "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+        "label": "C.mkv",
+        "neutral_quality_rank": 3,
+        "neutral_quality_score": 40.5,
+        "playback_score": 58.0,
+        "quality_rank": 3,
+        "quality_score": 40.5,
+        "ranking_score": 49.25,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         58.0,
+         58.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       }
+      ],
+      "will_not_play": []
+     },
+     "sony_bravia_8_ii/just_player": {
+      "crossing": 9.5,
+      "crossing_note": "A.mkv leads on picture (quality 60 vs 50); B.mkv would only move ahead if its playback score were 10 points higher than A.mkv's (now +0).",
+      "format_credit_removed": [],
+      "not_compared": [],
+      "quality_basis": "neutral",
+      "ranking": [
+       {
+        "device_rank": 1,
+        "device_score": 58.8,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+        "label": "A.mkv",
+        "neutral_quality_rank": 1,
+        "neutral_quality_score": 59.5,
+        "playback_score": 58.0,
+        "quality_rank": 1,
+        "quality_score": 59.5,
+        "ranking_score": 55.0,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 2,
+        "device_score": 54.0,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+        "label": "B.mkv",
+        "neutral_quality_rank": 2,
+        "neutral_quality_score": 50.0,
+        "playback_score": 58.0,
+        "quality_rank": 2,
+        "quality_score": 50.0,
+        "ranking_score": 50.25,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 3,
+        "device_score": 49.2,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+        "label": "C.mkv",
+        "neutral_quality_rank": 3,
+        "neutral_quality_score": 40.5,
+        "playback_score": 58.0,
+        "quality_rank": 3,
+        "quality_score": 40.5,
+        "ranking_score": 45.5,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       }
+      ],
+      "will_not_play": []
+     },
+     "sony_bravia_8_ii/kodi": {
+      "crossing": 9.5,
+      "crossing_note": "A.mkv leads on picture (quality 60 vs 50); B.mkv would only move ahead if its playback score were 10 points higher than A.mkv's (now +0).",
+      "format_credit_removed": [],
+      "not_compared": [],
+      "quality_basis": "neutral",
+      "ranking": [
+       {
+        "device_rank": 1,
+        "device_score": 58.8,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+        "label": "A.mkv",
+        "neutral_quality_rank": 1,
+        "neutral_quality_score": 59.5,
+        "playback_score": 58.0,
+        "quality_rank": 1,
+        "quality_score": 59.5,
+        "ranking_score": 55.0,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 2,
+        "device_score": 54.0,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+        "label": "B.mkv",
+        "neutral_quality_rank": 2,
+        "neutral_quality_score": 50.0,
+        "playback_score": 58.0,
+        "quality_rank": 2,
+        "quality_score": 50.0,
+        "ranking_score": 50.25,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 3,
+        "device_score": 49.2,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+        "label": "C.mkv",
+        "neutral_quality_rank": 3,
+        "neutral_quality_score": 40.5,
+        "playback_score": 58.0,
+        "quality_rank": 3,
+        "quality_score": 40.5,
+        "ranking_score": 45.5,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       }
+      ],
+      "will_not_play": []
+     }
+    },
+    "evaluated_players": [
+     "builtin_usb",
+     "kodi",
+     "just_player"
+    ],
+    "head_to_head_conflicts": [],
+    "legacy_reports": [],
+    "missing_pairs": [],
+    "not_compared": [],
+    "quality": [
+     {
+      "games": 2,
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "label": "A.mkv",
+      "margin": 3.8,
+      "quality_score": 59.5,
+      "rank": 1
+     },
+     {
+      "games": 2,
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "label": "B.mkv",
+      "margin": 0.0,
+      "quality_score": 50.0,
+      "rank": 2
+     },
+     {
+      "games": 2,
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "label": "C.mkv",
+      "margin": -3.8,
+      "quality_score": 40.5,
+      "rank": 3
+     }
+    ],
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "results": "device",
+    "same_picture_groups": [
+     [
+      "A.mkv"
+     ],
+     [
+      "C.mkv"
+     ],
+     [
+      "B.mkv"
+     ]
+    ],
+    "schema": "videosuite-rank/1",
+    "selected": {
+     "device": "sony_bravia_8_ii",
+     "player": "just_player"
+    },
+    "selection": "all",
+    "settings": {
+     "applied_count": 0,
+     "errors": [],
+     "inactive": [],
+     "loaded": false,
+     "path": "<SCRATCH>\\no_settings.json"
+    },
+    "stale_reports": [],
+    "tool_version": "0.7.0",
+    "weights": {
+     "playback": 0.5,
+     "quality": 0.5
+    }
+   },
+   "estimate": {
+    "minutes": 45,
+    "pairs": 3
+   },
+   "facts": [
+    {
+     "audio": [],
+     "claims": {
+      "claimed_audio": [],
+      "claimed_hdr": [],
+      "claimed_resolution": null,
+      "claimed_resolution_weak": false,
+      "release_name": "A.mkv",
+      "source_class": "unknown",
+      "source_class_spec": "unknown"
+     },
+     "container": {
+      "duration_s": 120.0,
+      "format": "matroska",
+      "overall_bitrate_kbps": 0,
+      "size_bytes": 4096
+     },
+     "facts_version": 2,
+     "hdr": {
+      "dolby_vision": {
+       "base_layer": null,
+       "el_present": null,
+       "el_type": "unknown",
+       "profile": null,
+       "status": "unknown",
+       "sub_profile": null
+      },
+      "formats": [],
+      "hdr10plus": {
+       "coverage": 0.0,
+       "status": "not_scanned"
+      },
+      "mastering": null,
+      "max_cll": null,
+      "max_fall": null,
+      "realism": {
+       "sustained_peak_nits": null,
+       "verdict": "not_measured"
+      }
+     },
+     "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+     "pixel_results": [],
+     "playback": {},
+     "schema": "media-record/1",
+     "source": {
+      "magnet": null,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "probe_coverage": "full",
+      "tools": {
+       "ffprobe": ""
+      }
+     },
+     "subtitles": [],
+     "verification": {
+      "flags": [],
+      "trust_score": 100,
+      "vetoes": []
+     },
+     "video": {
+      "bit_depth": 8,
+      "bitrate_kbps": 10000.0,
+      "bitrate_source": "stream",
+      "codec": "h264",
+      "fps": null,
+      "height": 1080,
+      "level": null,
+      "picture_height": null,
+      "picture_width": null,
+      "profile": null,
+      "width": 1920
+     }
+    },
+    {
+     "audio": [],
+     "claims": {
+      "claimed_audio": [],
+      "claimed_hdr": [],
+      "claimed_resolution": null,
+      "claimed_resolution_weak": false,
+      "release_name": "B.mkv",
+      "source_class": "unknown",
+      "source_class_spec": "unknown"
+     },
+     "container": {
+      "duration_s": 120.0,
+      "format": "matroska",
+      "overall_bitrate_kbps": 1,
+      "size_bytes": 8192
+     },
+     "facts_version": 2,
+     "hdr": {
+      "dolby_vision": {
+       "base_layer": null,
+       "el_present": null,
+       "el_type": "unknown",
+       "profile": null,
+       "status": "unknown",
+       "sub_profile": null
+      },
+      "formats": [],
+      "hdr10plus": {
+       "coverage": 0.0,
+       "status": "not_scanned"
+      },
+      "mastering": null,
+      "max_cll": null,
+      "max_fall": null,
+      "realism": {
+       "sustained_peak_nits": null,
+       "verdict": "not_measured"
+      }
+     },
+     "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+     "pixel_results": [],
+     "playback": {},
+     "schema": "media-record/1",
+     "source": {
+      "magnet": null,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "probe_coverage": "full",
+      "tools": {
+       "ffprobe": ""
+      }
+     },
+     "subtitles": [],
+     "verification": {
+      "flags": [],
+      "trust_score": 100,
+      "vetoes": []
+     },
+     "video": {
+      "bit_depth": 8,
+      "bitrate_kbps": 10000.0,
+      "bitrate_source": "stream",
+      "codec": "h264",
+      "fps": null,
+      "height": 1080,
+      "level": null,
+      "picture_height": null,
+      "picture_width": null,
+      "profile": null,
+      "width": 1920
+     }
+    },
+    {
+     "audio": [],
+     "claims": {
+      "claimed_audio": [],
+      "claimed_hdr": [],
+      "claimed_resolution": null,
+      "claimed_resolution_weak": false,
+      "release_name": "C.mkv",
+      "source_class": "unknown",
+      "source_class_spec": "unknown"
+     },
+     "container": {
+      "duration_s": 120.0,
+      "format": "matroska",
+      "overall_bitrate_kbps": 1,
+      "size_bytes": 12288
+     },
+     "facts_version": 2,
+     "hdr": {
+      "dolby_vision": {
+       "base_layer": null,
+       "el_present": null,
+       "el_type": "unknown",
+       "profile": null,
+       "status": "unknown",
+       "sub_profile": null
+      },
+      "formats": [],
+      "hdr10plus": {
+       "coverage": 0.0,
+       "status": "not_scanned"
+      },
+      "mastering": null,
+      "max_cll": null,
+      "max_fall": null,
+      "realism": {
+       "sustained_peak_nits": null,
+       "verdict": "not_measured"
+      }
+     },
+     "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+     "pixel_results": [],
+     "playback": {},
+     "schema": "media-record/1",
+     "source": {
+      "magnet": null,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "probe_coverage": "full",
+      "tools": {
+       "ffprobe": ""
+      }
+     },
+     "subtitles": [],
+     "verification": {
+      "flags": [],
+      "trust_score": 100,
+      "vetoes": []
+     },
+     "video": {
+      "bit_depth": 8,
+      "bitrate_kbps": 10000.0,
+      "bitrate_source": "stream",
+      "codec": "h264",
+      "fps": null,
+      "height": 1080,
+      "level": null,
+      "picture_height": null,
+      "picture_width": null,
+      "profile": null,
+      "width": 1920
+     }
+    }
+   ],
+   "failures": [
+    {
+     "candidate_id": null,
+     "kind": "failed_pairs",
+     "message": "1 comparison pair(s) failed",
+     "stage": "pixels"
+    }
+   ],
+   "measurement": "pixels",
+   "overall": {
+    "candidates": [
+     {
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "mtime_ns": 1700000000000000000,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "reason": null,
+      "size": 4096,
+      "status": "ready"
+     },
+     {
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "mtime_ns": 1700000000000000001,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "reason": null,
+      "size": 8192,
+      "status": "ready"
+     },
+     {
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "mtime_ns": 1700000000000000002,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "reason": null,
+      "size": 12288,
+      "status": "ready"
+     }
+    ],
+    "coverage": {
+     "completed_pairs": 3,
+     "expected_pairs": 3,
+     "missing_pairs": 0,
+     "scheduled_pairs": 3
+    },
+    "devices": {},
+    "head_to_head_conflicts": [],
+    "legacy_reports": [],
+    "missing_pairs": [],
+    "not_compared": [],
+    "quality": [
+     {
+      "games": 2,
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "label": "A.mkv",
+      "margin": 3.8,
+      "quality_score": 59.5,
+      "rank": 1
+     },
+     {
+      "games": 2,
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "label": "B.mkv",
+      "margin": 0.0,
+      "quality_score": 50.0,
+      "rank": 2
+     },
+     {
+      "games": 2,
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "label": "C.mkv",
+      "margin": -3.8,
+      "quality_score": 40.5,
+      "rank": 3
+     }
+    ],
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "results": "overall",
+    "same_picture_groups": [
+     [
+      "A.mkv"
+     ],
+     [
+      "C.mkv"
+     ],
+     [
+      "B.mkv"
+     ]
+    ],
+    "schema": "videosuite-rank/1",
+    "selection": "all",
+    "settings": null,
+    "stale_reports": [],
+    "tool_version": "0.7.0",
+    "weights": {
+     "playback": 0.5,
+     "quality": 0.5
+    }
+   },
+   "provenance": {
+    "build_id": null,
+    "engine_tag": "562ab353",
+    "facts_version": 2,
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "rules_versions": {
+     "sony_bravia_8_ii": 3
+    },
+    "settings_digest": null,
+    "tool_version": "0.7.0"
+   },
+   "reports": [
+    {
+     "kind": "json",
+     "name": "A_vs_B_accurate_f5fe396524.json",
+     "report_id": "68d5bfa3acdecda1",
+     "sha256": "c3fd93755e9a277a91a90575791a7901d50fe6b2415adba49aec3be37ca974dd",
+     "url": "/comparison/runs/run-0001/reports/68d5bfa3acdecda1"
+    },
+    {
+     "kind": "json",
+     "name": "A_vs_C_accurate_abc3e912ff.json",
+     "report_id": "eb55331634004cf5",
+     "sha256": "96dffdd16d2471f4bd5b500664ae6bdf4891d478b7c0d93d2331cacdc621f8ad",
+     "url": "/comparison/runs/run-0001/reports/eb55331634004cf5"
+    }
+   ],
+   "request": {
+    "audio_output": null,
+    "depth": "full",
+    "device": "sony_bravia_8_ii",
+    "fs": null,
+    "include_alternatives": true,
+    "input_kind": "files",
+    "lang": "eng",
+    "paths": [
+     "C:\\plan4b-fixture-inputs\\A.mkv",
+     "C:\\plan4b-fixture-inputs\\B.mkv",
+     "C:\\plan4b-fixture-inputs\\C.mkv"
+    ],
+    "player": "all",
+    "primary_player": "just_player",
+    "results": "both"
+   },
+   "run_id": "run-0001",
+   "schema": "videosuite-comparison-run/1",
+   "snapshot": {
+    "candidates": [
+     {
+      "candidate_id": "c0",
+      "file_index": null,
+      "kind": "file",
+      "mtime_ns": 1700000000000000000,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "reason": null,
+      "record_id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "size": 4096,
+      "status": "ready",
+      "uri": null
+     },
+     {
+      "candidate_id": "c1",
+      "file_index": null,
+      "kind": "file",
+      "mtime_ns": 1700000000000000001,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "reason": null,
+      "record_id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "size": 8192,
+      "status": "ready",
+      "uri": null
+     },
+     {
+      "candidate_id": "c2",
+      "file_index": null,
+      "kind": "file",
+      "mtime_ns": 1700000000000000002,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "reason": null,
+      "record_id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "size": 12288,
+      "status": "ready",
+      "uri": null
+     }
+    ],
+    "conditions": {
+     "audio_output": null,
+     "device": "sony_bravia_8_ii",
+     "evaluated_players": [
+      "builtin_usb",
+      "kodi",
+      "just_player"
+     ],
+     "fs": null,
+     "lang": "eng",
+     "player": "all",
+     "primary_player": "just_player",
+     "settings_digest": null
+    },
+    "created_at": 1700000000.0,
+    "estimate": {
+     "minutes": 45,
+     "pairs": 3
+    },
+    "job_id": "00000000000000000000000000000003",
+    "plan_revision": "rev-302aa61015d20d93",
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "request": {
+     "audio_output": null,
+     "depth": "full",
+     "device": "sony_bravia_8_ii",
+     "fs": null,
+     "include_alternatives": true,
+     "input_kind": "files",
+     "lang": "eng",
+     "paths": [
+      "C:\\plan4b-fixture-inputs\\A.mkv",
+      "C:\\plan4b-fixture-inputs\\B.mkv",
+      "C:\\plan4b-fixture-inputs\\C.mkv"
+     ],
+     "player": "all",
+     "primary_player": "just_player",
+     "results": "both"
+    },
+    "run_id": "run-0001",
+    "stage": "error",
+    "versions": {
+     "engine_tag": "562ab353",
+     "facts_version": 2,
+     "rules_versions": {
+      "sony_bravia_8_ii": 3
+     },
+     "tool_version": "0.7.0"
+    }
+   }
+  },
+  "run": {
+   "candidates": [
+    {
+     "candidate_id": "c0",
+     "file_index": null,
+     "kind": "file",
+     "mtime_ns": 1700000000000000000,
+     "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+     "reason": null,
+     "record_id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+     "size": 4096,
+     "status": "ready",
+     "uri": null
+    },
+    {
+     "candidate_id": "c1",
+     "file_index": null,
+     "kind": "file",
+     "mtime_ns": 1700000000000000001,
+     "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+     "reason": null,
+     "record_id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+     "size": 8192,
+     "status": "ready",
+     "uri": null
+    },
+    {
+     "candidate_id": "c2",
+     "file_index": null,
+     "kind": "file",
+     "mtime_ns": 1700000000000000002,
+     "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+     "reason": null,
+     "record_id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+     "size": 12288,
+     "status": "ready",
+     "uri": null
+    }
+   ],
+   "conditions": {
+    "audio_output": null,
+    "device": "sony_bravia_8_ii",
+    "evaluated_players": [
+     "builtin_usb",
+     "kodi",
+     "just_player"
+    ],
+    "fs": null,
+    "lang": "eng",
+    "player": "all",
+    "primary_player": "just_player",
+    "settings_digest": null
+   },
+   "created_at": 1700000000.0,
+   "estimate": {
+    "minutes": 45,
+    "pairs": 3
+   },
+   "job_id": "00000000000000000000000000000003",
+   "plan_revision": "rev-302aa61015d20d93",
+   "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+   "request": {
+    "audio_output": null,
+    "depth": "full",
+    "device": "sony_bravia_8_ii",
+    "fs": null,
+    "include_alternatives": true,
+    "input_kind": "files",
+    "lang": "eng",
+    "paths": [
+     "C:\\plan4b-fixture-inputs\\A.mkv",
+     "C:\\plan4b-fixture-inputs\\B.mkv",
+     "C:\\plan4b-fixture-inputs\\C.mkv"
+    ],
+    "player": "all",
+    "primary_player": "just_player",
+    "results": "both"
+   },
+   "run_id": "run-0001",
+   "stage": "error",
+   "versions": {
+    "engine_tag": "562ab353",
+    "facts_version": 2,
+    "rules_versions": {
+     "sony_bravia_8_ii": 3
+    },
+    "tool_version": "0.7.0"
+   }
+  },
+  "run_id": "run-0001",
+  "status": "error",
+  "total": 3
+ },
+ "run": {
+  "result": {
+   "completed_stages": [
+    "planning",
+    "facts",
+    "pixels",
+    "rank"
+   ],
+   "coverage": {
+    "complete": false,
+    "completed_pairs": 2,
+    "expected_pairs": 3,
+    "missing_pairs": 1,
+    "readable": 3,
+    "submitted": 3
+   },
+   "device": {
+    "candidates": [
+     {
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "mtime_ns": 1700000000000000000,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "reason": null,
+      "size": 4096,
+      "status": "ready"
+     },
+     {
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "mtime_ns": 1700000000000000001,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "reason": null,
+      "size": 8192,
+      "status": "ready"
+     },
+     {
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "mtime_ns": 1700000000000000002,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "reason": null,
+      "size": 12288,
+      "status": "ready"
+     }
+    ],
+    "coverage": {
+     "completed_pairs": 3,
+     "expected_pairs": 3,
+     "missing_pairs": 0,
+     "scheduled_pairs": 3
+    },
+    "devices": {
+     "sony_bravia_8_ii/builtin_usb": {
+      "crossing": 9.5,
+      "crossing_note": "A.mkv leads on picture (quality 60 vs 50); B.mkv would only move ahead if its playback score were 10 points higher than A.mkv's (now +0).",
+      "format_credit_removed": [],
+      "not_compared": [],
+      "quality_basis": "neutral",
+      "ranking": [
+       {
+        "device_rank": 1,
+        "device_score": 58.8,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "official",
+        "games": 2,
+        "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+        "label": "A.mkv",
+        "neutral_quality_rank": 1,
+        "neutral_quality_score": 59.5,
+        "playback_score": 58.0,
+        "quality_rank": 1,
+        "quality_score": 59.5,
+        "ranking_score": 58.75,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         58.0,
+         58.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 2,
+        "device_score": 54.0,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "official",
+        "games": 2,
+        "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+        "label": "B.mkv",
+        "neutral_quality_rank": 2,
+        "neutral_quality_score": 50.0,
+        "playback_score": 58.0,
+        "quality_rank": 2,
+        "quality_score": 50.0,
+        "ranking_score": 54.0,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         58.0,
+         58.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 3,
+        "device_score": 49.2,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "official",
+        "games": 2,
+        "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+        "label": "C.mkv",
+        "neutral_quality_rank": 3,
+        "neutral_quality_score": 40.5,
+        "playback_score": 58.0,
+        "quality_rank": 3,
+        "quality_score": 40.5,
+        "ranking_score": 49.25,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         58.0,
+         58.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       }
+      ],
+      "will_not_play": []
+     },
+     "sony_bravia_8_ii/just_player": {
+      "crossing": 9.5,
+      "crossing_note": "A.mkv leads on picture (quality 60 vs 50); B.mkv would only move ahead if its playback score were 10 points higher than A.mkv's (now +0).",
+      "format_credit_removed": [],
+      "not_compared": [],
+      "quality_basis": "neutral",
+      "ranking": [
+       {
+        "device_rank": 1,
+        "device_score": 58.8,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+        "label": "A.mkv",
+        "neutral_quality_rank": 1,
+        "neutral_quality_score": 59.5,
+        "playback_score": 58.0,
+        "quality_rank": 1,
+        "quality_score": 59.5,
+        "ranking_score": 55.0,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 2,
+        "device_score": 54.0,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+        "label": "B.mkv",
+        "neutral_quality_rank": 2,
+        "neutral_quality_score": 50.0,
+        "playback_score": 58.0,
+        "quality_rank": 2,
+        "quality_score": 50.0,
+        "ranking_score": 50.25,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 3,
+        "device_score": 49.2,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+        "label": "C.mkv",
+        "neutral_quality_rank": 3,
+        "neutral_quality_score": 40.5,
+        "playback_score": 58.0,
+        "quality_rank": 3,
+        "quality_score": 40.5,
+        "ranking_score": 45.5,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       }
+      ],
+      "will_not_play": []
+     },
+     "sony_bravia_8_ii/kodi": {
+      "crossing": 9.5,
+      "crossing_note": "A.mkv leads on picture (quality 60 vs 50); B.mkv would only move ahead if its playback score were 10 points higher than A.mkv's (now +0).",
+      "format_credit_removed": [],
+      "not_compared": [],
+      "quality_basis": "neutral",
+      "ranking": [
+       {
+        "device_rank": 1,
+        "device_score": 58.8,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+        "label": "A.mkv",
+        "neutral_quality_rank": 1,
+        "neutral_quality_score": 59.5,
+        "playback_score": 58.0,
+        "quality_rank": 1,
+        "quality_score": 59.5,
+        "ranking_score": 55.0,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 2,
+        "device_score": 54.0,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+        "label": "B.mkv",
+        "neutral_quality_rank": 2,
+        "neutral_quality_score": 50.0,
+        "playback_score": 58.0,
+        "quality_rank": 2,
+        "quality_score": 50.0,
+        "ranking_score": 50.25,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       },
+       {
+        "device_rank": 3,
+        "device_score": 49.2,
+        "effective_audio": null,
+        "effective_hdr": "SDR",
+        "evidence": "inferred",
+        "games": 2,
+        "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+        "label": "C.mkv",
+        "neutral_quality_rank": 3,
+        "neutral_quality_score": 40.5,
+        "playback_score": 58.0,
+        "quality_rank": 3,
+        "quality_score": 40.5,
+        "ranking_score": 45.5,
+        "reasons": [
+         "the file has no audio track"
+        ],
+        "score_range": [
+         43.0,
+         73.0
+        ],
+        "tier": 0,
+        "verdict": "PLAYS_DEGRADED",
+        "why": null
+       }
+      ],
+      "will_not_play": []
+     }
+    },
+    "evaluated_players": [
+     "builtin_usb",
+     "kodi",
+     "just_player"
+    ],
+    "head_to_head_conflicts": [],
+    "legacy_reports": [],
+    "missing_pairs": [],
+    "not_compared": [],
+    "quality": [
+     {
+      "games": 2,
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "label": "A.mkv",
+      "margin": 3.8,
+      "quality_score": 59.5,
+      "rank": 1
+     },
+     {
+      "games": 2,
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "label": "B.mkv",
+      "margin": 0.0,
+      "quality_score": 50.0,
+      "rank": 2
+     },
+     {
+      "games": 2,
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "label": "C.mkv",
+      "margin": -3.8,
+      "quality_score": 40.5,
+      "rank": 3
+     }
+    ],
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "results": "device",
+    "same_picture_groups": [
+     [
+      "A.mkv"
+     ],
+     [
+      "C.mkv"
+     ],
+     [
+      "B.mkv"
+     ]
+    ],
+    "schema": "videosuite-rank/1",
+    "selected": {
+     "device": "sony_bravia_8_ii",
+     "player": "just_player"
+    },
+    "selection": "all",
+    "settings": {
+     "applied_count": 0,
+     "errors": [],
+     "inactive": [],
+     "loaded": false,
+     "path": "<SCRATCH>\\no_settings.json"
+    },
+    "stale_reports": [],
+    "tool_version": "0.7.0",
+    "weights": {
+     "playback": 0.5,
+     "quality": 0.5
+    }
+   },
+   "estimate": {
+    "minutes": 45,
+    "pairs": 3
+   },
+   "facts": [
+    {
+     "audio": [],
+     "claims": {
+      "claimed_audio": [],
+      "claimed_hdr": [],
+      "claimed_resolution": null,
+      "claimed_resolution_weak": false,
+      "release_name": "A.mkv",
+      "source_class": "unknown",
+      "source_class_spec": "unknown"
+     },
+     "container": {
+      "duration_s": 120.0,
+      "format": "matroska",
+      "overall_bitrate_kbps": 0,
+      "size_bytes": 4096
+     },
+     "facts_version": 2,
+     "hdr": {
+      "dolby_vision": {
+       "base_layer": null,
+       "el_present": null,
+       "el_type": "unknown",
+       "profile": null,
+       "status": "unknown",
+       "sub_profile": null
+      },
+      "formats": [],
+      "hdr10plus": {
+       "coverage": 0.0,
+       "status": "not_scanned"
+      },
+      "mastering": null,
+      "max_cll": null,
+      "max_fall": null,
+      "realism": {
+       "sustained_peak_nits": null,
+       "verdict": "not_measured"
+      }
+     },
+     "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+     "pixel_results": [],
+     "playback": {},
+     "schema": "media-record/1",
+     "source": {
+      "magnet": null,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "probe_coverage": "full",
+      "tools": {
+       "ffprobe": ""
+      }
+     },
+     "subtitles": [],
+     "verification": {
+      "flags": [],
+      "trust_score": 100,
+      "vetoes": []
+     },
+     "video": {
+      "bit_depth": 8,
+      "bitrate_kbps": 10000.0,
+      "bitrate_source": "stream",
+      "codec": "h264",
+      "fps": null,
+      "height": 1080,
+      "level": null,
+      "picture_height": null,
+      "picture_width": null,
+      "profile": null,
+      "width": 1920
+     }
+    },
+    {
+     "audio": [],
+     "claims": {
+      "claimed_audio": [],
+      "claimed_hdr": [],
+      "claimed_resolution": null,
+      "claimed_resolution_weak": false,
+      "release_name": "B.mkv",
+      "source_class": "unknown",
+      "source_class_spec": "unknown"
+     },
+     "container": {
+      "duration_s": 120.0,
+      "format": "matroska",
+      "overall_bitrate_kbps": 1,
+      "size_bytes": 8192
+     },
+     "facts_version": 2,
+     "hdr": {
+      "dolby_vision": {
+       "base_layer": null,
+       "el_present": null,
+       "el_type": "unknown",
+       "profile": null,
+       "status": "unknown",
+       "sub_profile": null
+      },
+      "formats": [],
+      "hdr10plus": {
+       "coverage": 0.0,
+       "status": "not_scanned"
+      },
+      "mastering": null,
+      "max_cll": null,
+      "max_fall": null,
+      "realism": {
+       "sustained_peak_nits": null,
+       "verdict": "not_measured"
+      }
+     },
+     "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+     "pixel_results": [],
+     "playback": {},
+     "schema": "media-record/1",
+     "source": {
+      "magnet": null,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "probe_coverage": "full",
+      "tools": {
+       "ffprobe": ""
+      }
+     },
+     "subtitles": [],
+     "verification": {
+      "flags": [],
+      "trust_score": 100,
+      "vetoes": []
+     },
+     "video": {
+      "bit_depth": 8,
+      "bitrate_kbps": 10000.0,
+      "bitrate_source": "stream",
+      "codec": "h264",
+      "fps": null,
+      "height": 1080,
+      "level": null,
+      "picture_height": null,
+      "picture_width": null,
+      "profile": null,
+      "width": 1920
+     }
+    },
+    {
+     "audio": [],
+     "claims": {
+      "claimed_audio": [],
+      "claimed_hdr": [],
+      "claimed_resolution": null,
+      "claimed_resolution_weak": false,
+      "release_name": "C.mkv",
+      "source_class": "unknown",
+      "source_class_spec": "unknown"
+     },
+     "container": {
+      "duration_s": 120.0,
+      "format": "matroska",
+      "overall_bitrate_kbps": 1,
+      "size_bytes": 12288
+     },
+     "facts_version": 2,
+     "hdr": {
+      "dolby_vision": {
+       "base_layer": null,
+       "el_present": null,
+       "el_type": "unknown",
+       "profile": null,
+       "status": "unknown",
+       "sub_profile": null
+      },
+      "formats": [],
+      "hdr10plus": {
+       "coverage": 0.0,
+       "status": "not_scanned"
+      },
+      "mastering": null,
+      "max_cll": null,
+      "max_fall": null,
+      "realism": {
+       "sustained_peak_nits": null,
+       "verdict": "not_measured"
+      }
+     },
+     "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+     "pixel_results": [],
+     "playback": {},
+     "schema": "media-record/1",
+     "source": {
+      "magnet": null,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "probe_coverage": "full",
+      "tools": {
+       "ffprobe": ""
+      }
+     },
+     "subtitles": [],
+     "verification": {
+      "flags": [],
+      "trust_score": 100,
+      "vetoes": []
+     },
+     "video": {
+      "bit_depth": 8,
+      "bitrate_kbps": 10000.0,
+      "bitrate_source": "stream",
+      "codec": "h264",
+      "fps": null,
+      "height": 1080,
+      "level": null,
+      "picture_height": null,
+      "picture_width": null,
+      "profile": null,
+      "width": 1920
+     }
+    }
+   ],
+   "failures": [
+    {
+     "candidate_id": null,
+     "kind": "failed_pairs",
+     "message": "1 comparison pair(s) failed",
+     "stage": "pixels"
+    }
+   ],
+   "measurement": "pixels",
+   "overall": {
+    "candidates": [
+     {
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "mtime_ns": 1700000000000000000,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "reason": null,
+      "size": 4096,
+      "status": "ready"
+     },
+     {
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "mtime_ns": 1700000000000000001,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "reason": null,
+      "size": 8192,
+      "status": "ready"
+     },
+     {
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "mtime_ns": 1700000000000000002,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "reason": null,
+      "size": 12288,
+      "status": "ready"
+     }
+    ],
+    "coverage": {
+     "completed_pairs": 3,
+     "expected_pairs": 3,
+     "missing_pairs": 0,
+     "scheduled_pairs": 3
+    },
+    "devices": {},
+    "head_to_head_conflicts": [],
+    "legacy_reports": [],
+    "missing_pairs": [],
+    "not_compared": [],
+    "quality": [
+     {
+      "games": 2,
+      "id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "label": "A.mkv",
+      "margin": 3.8,
+      "quality_score": 59.5,
+      "rank": 1
+     },
+     {
+      "games": 2,
+      "id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "label": "B.mkv",
+      "margin": 0.0,
+      "quality_score": 50.0,
+      "rank": 2
+     },
+     {
+      "games": 2,
+      "id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "label": "C.mkv",
+      "margin": -3.8,
+      "quality_score": 40.5,
+      "rank": 3
+     }
+    ],
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "results": "overall",
+    "same_picture_groups": [
+     [
+      "A.mkv"
+     ],
+     [
+      "C.mkv"
+     ],
+     [
+      "B.mkv"
+     ]
+    ],
+    "schema": "videosuite-rank/1",
+    "selection": "all",
+    "settings": null,
+    "stale_reports": [],
+    "tool_version": "0.7.0",
+    "weights": {
+     "playback": 0.5,
+     "quality": 0.5
+    }
+   },
+   "provenance": {
+    "build_id": null,
+    "engine_tag": "562ab353",
+    "facts_version": 2,
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "rules_versions": {
+     "sony_bravia_8_ii": 3
+    },
+    "settings_digest": null,
+    "tool_version": "0.7.0"
+   },
+   "reports": [
+    {
+     "kind": "json",
+     "name": "A_vs_B_accurate_f5fe396524.json",
+     "report_id": "68d5bfa3acdecda1",
+     "sha256": "c3fd93755e9a277a91a90575791a7901d50fe6b2415adba49aec3be37ca974dd",
+     "url": "/comparison/runs/run-0001/reports/68d5bfa3acdecda1"
+    },
+    {
+     "kind": "json",
+     "name": "A_vs_C_accurate_abc3e912ff.json",
+     "report_id": "eb55331634004cf5",
+     "sha256": "96dffdd16d2471f4bd5b500664ae6bdf4891d478b7c0d93d2331cacdc621f8ad",
+     "url": "/comparison/runs/run-0001/reports/eb55331634004cf5"
+    }
+   ],
+   "request": {
+    "audio_output": null,
+    "depth": "full",
+    "device": "sony_bravia_8_ii",
+    "fs": null,
+    "include_alternatives": true,
+    "input_kind": "files",
+    "lang": "eng",
+    "paths": [
+     "C:\\plan4b-fixture-inputs\\A.mkv",
+     "C:\\plan4b-fixture-inputs\\B.mkv",
+     "C:\\plan4b-fixture-inputs\\C.mkv"
+    ],
+    "player": "all",
+    "primary_player": "just_player",
+    "results": "both"
+   },
+   "run_id": "run-0001",
+   "schema": "videosuite-comparison-run/1",
+   "snapshot": {
+    "candidates": [
+     {
+      "candidate_id": "c0",
+      "file_index": null,
+      "kind": "file",
+      "mtime_ns": 1700000000000000000,
+      "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+      "reason": null,
+      "record_id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+      "size": 4096,
+      "status": "ready",
+      "uri": null
+     },
+     {
+      "candidate_id": "c1",
+      "file_index": null,
+      "kind": "file",
+      "mtime_ns": 1700000000000000001,
+      "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+      "reason": null,
+      "record_id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+      "size": 8192,
+      "status": "ready",
+      "uri": null
+     },
+     {
+      "candidate_id": "c2",
+      "file_index": null,
+      "kind": "file",
+      "mtime_ns": 1700000000000000002,
+      "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+      "reason": null,
+      "record_id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+      "size": 12288,
+      "status": "ready",
+      "uri": null
+     }
+    ],
+    "conditions": {
+     "audio_output": null,
+     "device": "sony_bravia_8_ii",
+     "evaluated_players": [
+      "builtin_usb",
+      "kodi",
+      "just_player"
+     ],
+     "fs": null,
+     "lang": "eng",
+     "player": "all",
+     "primary_player": "just_player",
+     "settings_digest": null
+    },
+    "created_at": 1700000000.0,
+    "estimate": {
+     "minutes": 45,
+     "pairs": 3
+    },
+    "job_id": "00000000000000000000000000000003",
+    "plan_revision": "rev-302aa61015d20d93",
+    "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+    "request": {
+     "audio_output": null,
+     "depth": "full",
+     "device": "sony_bravia_8_ii",
+     "fs": null,
+     "include_alternatives": true,
+     "input_kind": "files",
+     "lang": "eng",
+     "paths": [
+      "C:\\plan4b-fixture-inputs\\A.mkv",
+      "C:\\plan4b-fixture-inputs\\B.mkv",
+      "C:\\plan4b-fixture-inputs\\C.mkv"
+     ],
+     "player": "all",
+     "primary_player": "just_player",
+     "results": "both"
+    },
+    "run_id": "run-0001",
+    "stage": "error",
+    "versions": {
+     "engine_tag": "562ab353",
+     "facts_version": 2,
+     "rules_versions": {
+      "sony_bravia_8_ii": 3
+     },
+     "tool_version": "0.7.0"
+    }
+   }
+  },
+  "run": {
+   "candidates": [
+    {
+     "candidate_id": "c0",
+     "file_index": null,
+     "kind": "file",
+     "mtime_ns": 1700000000000000000,
+     "path": "C:\\plan4b-fixture-inputs\\A.mkv",
+     "reason": null,
+     "record_id": "2e9929ac57d537af2a54a53d3c96d15af6fb4526",
+     "size": 4096,
+     "status": "ready",
+     "uri": null
+    },
+    {
+     "candidate_id": "c1",
+     "file_index": null,
+     "kind": "file",
+     "mtime_ns": 1700000000000000001,
+     "path": "C:\\plan4b-fixture-inputs\\B.mkv",
+     "reason": null,
+     "record_id": "aa62d61172a26aa7aec6cfa47a3e4bcc892d06c9",
+     "size": 8192,
+     "status": "ready",
+     "uri": null
+    },
+    {
+     "candidate_id": "c2",
+     "file_index": null,
+     "kind": "file",
+     "mtime_ns": 1700000000000000002,
+     "path": "C:\\plan4b-fixture-inputs\\C.mkv",
+     "reason": null,
+     "record_id": "7b744b6c607f349a50d8af4e976ef0ac7c0b3d49",
+     "size": 12288,
+     "status": "ready",
+     "uri": null
+    }
+   ],
+   "conditions": {
+    "audio_output": null,
+    "device": "sony_bravia_8_ii",
+    "evaluated_players": [
+     "builtin_usb",
+     "kodi",
+     "just_player"
+    ],
+    "fs": null,
+    "lang": "eng",
+    "player": "all",
+    "primary_player": "just_player",
+    "settings_digest": null
+   },
+   "created_at": 1700000000.0,
+   "estimate": {
+    "minutes": 45,
+    "pairs": 3
+   },
+   "job_id": "00000000000000000000000000000003",
+   "plan_revision": "rev-302aa61015d20d93",
+   "records_digest": "b03d78cee9a3b7a2c003b44b940e99f8d5bb8de8efe4d57640ae52c08e8be223",
+   "request": {
+    "audio_output": null,
+    "depth": "full",
+    "device": "sony_bravia_8_ii",
+    "fs": null,
+    "include_alternatives": true,
+    "input_kind": "files",
+    "lang": "eng",
+    "paths": [
+     "C:\\plan4b-fixture-inputs\\A.mkv",
+     "C:\\plan4b-fixture-inputs\\B.mkv",
+     "C:\\plan4b-fixture-inputs\\C.mkv"
+    ],
+    "player": "all",
+    "primary_player": "just_player",
+    "results": "both"
+   },
+   "run_id": "run-0001",
+   "stage": "error",
+   "versions": {
+    "engine_tag": "562ab353",
+    "facts_version": 2,
+    "rules_versions": {
+     "sony_bravia_8_ii": 3
+    },
+    "tool_version": "0.7.0"
+   }
+  }
+ }
+}
